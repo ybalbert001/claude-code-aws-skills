@@ -1,0 +1,36 @@
+{
+  "name": "@claude-skills/excalidraw",
+  "version": "2.0.0",
+  "description": "Enhanced Excalidraw skill with PNG export capability using Playwright and official Excalidraw library",
+  "main": "scripts/render-to-png.js",
+  "scripts": {
+    "setup": "npm install && npx playwright install chromium",
+    "render": "node scripts/render-to-png.js",
+    "test": "node scripts/render-to-png.js --help"
+  },
+  "keywords": [
+    "excalidraw",
+    "diagram",
+    "png",
+    "export",
+    "render",
+    "claude-skill",
+    "visualization"
+  ],
+  "author": "Claude Skills",
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.49.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/excalidraw/excalidraw"
+  },
+  "bugs": {
+    "url": "https://github.com/excalidraw/excalidraw/issues"
+  },
+  "homepage": "https://excalidraw.com"
+}
