@@ -1,6 +1,6 @@
 ---
 name: excalidraw
-description: "Use when working with *.excalidraw or *.excalidraw.json files, user mentions diagrams/flowcharts/PNG rendering, or requests architecture visualization - delegates all Excalidraw operations to subagents to prevent context exhaustion from verbose JSON (single files: 4k-22k tokens, can exceed read limits). Includes PNG export capability via render-to-png.js script."
+description: "Use when working with *.excalidraw or *.excalidraw.json files, user mentions diagrams/flowcharts/PNG rendering, or requests architecture visualization - delegates all Excalidraw operations to subagents to prevent context exhaustion from verbose JSON (single files: 4k-22k tokens, can exceed read limits). Includes PNG export capability via export_excalidraw.py script."
 ---
 
 # Excalidraw Subagent Delegation
@@ -226,7 +226,7 @@ Not for:
 
 ### Overview
 
-The skill includes `scripts/render-to-png.js` for converting Excalidraw JSON files to PNG images. This script uses Playwright to render diagrams in a headless browser with the official Excalidraw library.
+The skill includes `scripts/export_excalidraw.py` for converting Excalidraw JSON files to PNG images. This Python script uses Playwright to automate excalidraw.com in a headless browser, importing the JSON data and exporting high-quality PNG images with configurable scale options.
 
 ### When to Use PNG Export
 
@@ -250,23 +250,20 @@ Trigger PNG export when users request:
 Task: Export [file.excalidraw.json] to PNG format
 
 Approach:
-1. Verify dependencies are installed (check scripts/package.json)
+1. Verify dependencies are installed (check requirements.txt)
 2. If not installed, guide user to run setup:
-   cd ~/.claude/skills/excalidraw/scripts && npm install && npx playwright install chromium
-   OR: bash scripts/setup.sh
-3. Run render-to-png.js script:
-   node scripts/render-to-png.js [input.excalidraw.json] [output.png] [options]
+   cd ~/.claude/skills/excalidraw && pip install -r requirements.txt && playwright install chromium
+3. Run export_excalidraw.py script:
+   python scripts/export_excalidraw.py [input.excalidraw.json] [output.png] [scale]
 4. Verify PNG was created successfully
 
-Options available:
-  --padding <number>      Padding in pixels (default: 50)
-  --background <color>    Background color (default: #ffffff)
-  --theme <light|dark>    Theme mode (default: light)
-  --scale <number>        Resolution scale factor (default: 2)
+Arguments:
+  input.excalidraw.json   Path to the Excalidraw JSON file (required)
+  output.png              Output PNG path (optional, defaults to input name with .png)
+  scale                   Export scale: 1, 2, or 3 (optional, default: 2)
 
 Return:
 - Output file path
-- Dimensions (width x height)
 - Confirmation message
 ```
 
@@ -274,55 +271,60 @@ Return:
 
 **Basic export:**
 ```bash
-node scripts/render-to-png.js architecture.excalidraw.json
-# Output: architecture.png
+python scripts/export_excalidraw.py architecture.excalidraw.json
+# Output: architecture.png (2x scale by default)
 ```
 
-**With custom options:**
+**With custom output path:**
 ```bash
-node scripts/render-to-png.js diagram.excalidraw.json output.png --padding 100 --scale 3
-# Higher resolution with more padding
+python scripts/export_excalidraw.py diagram.excalidraw.json output.png
+# Exports to output.png with 2x scale
 ```
 
-**Dark theme with transparent background:**
+**High resolution export:**
 ```bash
-node scripts/render-to-png.js diagram.excalidraw.json output.png --background transparent --theme dark
+python scripts/export_excalidraw.py diagram.excalidraw.json output.png 3
+# Exports with 3x scale for higher resolution
+```
+
+**Standard resolution:**
+```bash
+python scripts/export_excalidraw.py diagram.excalidraw.json output.png 1
+# Exports with 1x scale (standard resolution)
 ```
 
 ### Prerequisites
 
-The PNG export functionality requires dependencies specified in `scripts/package.json`:
+The PNG export functionality requires dependencies specified in `requirements.txt`:
 
 **Required:**
-- Node.js ≥ 18.0.0
-- Playwright ^1.49.0 (defined in scripts/package.json)
+- Python ≥ 3.8
+- Playwright ≥ 1.49.0 (defined in requirements.txt)
 - Chromium browser (via Playwright)
 
-**Installation methods:**
+**Installation:**
 
-1. **Automated setup** (recommended):
-   ```bash
-   cd ~/.claude/skills/excalidraw
-   bash scripts/setup.sh
-   ```
+```bash
+cd ~/.claude/skills/excalidraw
+pip install -r requirements.txt
+playwright install chromium
+```
 
-2. **Manual installation**:
-   ```bash
-   cd ~/.claude/skills/excalidraw/scripts
-   npm install
-   npx playwright install chromium
-   ```
-
-All dependencies are defined in `scripts/package.json` and installed automatically by the setup script.
+All dependencies are defined in `requirements.txt`.
 
 ### Script Location
 
-The rendering script is located at: `scripts/render-to-png.js`
+The export script is located at: `scripts/export_excalidraw.py`
 
-Run with `--help` for full usage information:
+**Usage:**
 ```bash
-node scripts/render-to-png.js --help
+python scripts/export_excalidraw.py <input.excalidraw.json> [output.png] [scale]
 ```
+
+**Parameters:**
+- `input.excalidraw.json`: Path to Excalidraw JSON file (required)
+- `output.png`: Output PNG path (optional, defaults to input filename with .png extension)
+- `scale`: Export scale factor - 1, 2, or 3 (optional, default: 2)
 
 ### Integration with Delegation Pattern
 
@@ -334,10 +336,10 @@ User: "Convert my-diagram.excalidraw.json to PNG"
 Main Agent: I'll delegate the PNG export to a subagent.
 
 [Dispatches Task tool]
-Task: Export my-diagram.excalidraw.json to PNG using scripts/render-to-png.js
+Task: Export my-diagram.excalidraw.json to PNG using scripts/export_excalidraw.py
 
-[Subagent handles Playwright setup and rendering]
-[Returns: "PNG exported successfully to my-diagram.png (800x600px)"]
+[Subagent handles Playwright automation and export]
+[Returns: "PNG exported successfully to my-diagram.png"]
 
 Main Agent: PNG has been created successfully at my-diagram.png
 ```
@@ -353,17 +355,17 @@ Common issues and solutions:
 
 | Issue | Solution |
 |-------|----------|
-| "Playwright is not installed" | Run `npm install playwright` |
-| "Browser not found" | Run `npx playwright install chromium` |
+| "playwright module not found" | Run `pip install -r requirements.txt` |
+| "Browser not found" | Run `playwright install chromium` |
 | "No elements found" | Check Excalidraw file is valid JSON with elements array |
-| "Permission denied" | Ensure script has execute permissions: `chmod +x scripts/render-to-png.js` |
+| "Permission denied" | Ensure script has execute permissions: `chmod +x scripts/export_excalidraw.py` |
 
 ### Output Quality
 
 Default settings produce high-quality output:
-- 2x device scale factor (retina resolution)
-- Automatic viewport sizing based on diagram bounds
-- 50px padding around content
-- White background with light theme
+- 2x export scale (retina resolution)
+- Full diagram rendering via excalidraw.com
+- Automatic sizing based on diagram content
+- Exports exactly as shown on excalidraw.com
 
-Increase `--scale` for even higher resolution (useful for printing or presentations).
+Use scale parameter `3` for even higher resolution (useful for printing or presentations), or `1` for standard web resolution.
