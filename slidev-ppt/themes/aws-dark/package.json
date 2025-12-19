@@ -21,5 +21,11 @@
         "mono": "Fira Code, monospace"
       }
     }
+  },
+  "devDependencies": {
+    "@slidev/types": "^0.48.0"
+  },
+  "peerDependencies": {
+    "@slidev/types": ">=0.48.0"
   }
 }

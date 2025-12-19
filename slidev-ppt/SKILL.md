@@ -55,6 +55,12 @@ theme: ../themes/aws-dark
 - Background classes: `bg-ocean`, `bg-sunset`, `bg-forest`, etc.
 - Footer with AWS logo
 
+**Theme installation (first time only):**
+```bash
+cd slidev-ppt/themes/aws-dark
+npm install
+```
+
 **Theme documentation:** `themes/aws-dark/README.md`
 
 ### Other Slidev Themes
@@ -173,20 +179,38 @@ Colors: `blue-green`, `blue-purple`, `orange-pink`
 
 ## Preview and Export
 
-**Preview presentation:**
+### Preview Presentation
+
+**Option 1: From slidev-ppt/ directory**
 ```bash
 npm install && npx slidev ppt-{topic-name}/slides.md
 ```
 
-**Export to PDF:**
+**Option 2: From presentation directory (recommended)**
 ```bash
-npx slidev export ppt-{topic-name}/slides.md --format pdf
+cd ppt-{topic-name}
+npm install && npx slidev slides.md
 ```
 
-**Export to PPTX:**
+### Export to PDF/PPTX
+
+**Option 1: From slidev-ppt/ directory**
 ```bash
+npx slidev export ppt-{topic-name}/slides.md --format pdf
 npx slidev export ppt-{topic-name}/slides.md --format pptx
 ```
+
+**Option 2: From presentation directory (recommended)**
+```bash
+cd ppt-{topic-name}
+npx slidev export --format pdf    # exports to slides-export.pdf
+npx slidev export --format pptx   # exports to slides-export.pptx
+```
+
+**Notes:**
+- If using AWS dark theme for the first time, install theme dependencies first: `cd slidev-ppt/themes/aws-dark && npm install`
+- The export command will generate files with `-export` suffix by default
+- PDF export requires a Chromium-based browser to be installed
 
 ## Example Usage
 
