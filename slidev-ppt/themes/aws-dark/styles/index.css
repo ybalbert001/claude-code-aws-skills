@@ -1,0 +1,342 @@
+/* AWS Dark Theme - Main Styles */
+
+@import './layout.css';
+@import './code.css';
+
+:root {
+  /* AWS Brand Colors - Customizable via theme.config.js */
+  --aws-orange: #ff9900;
+  --aws-blue: #00a1e0;
+  --aws-dark-blue: #232f3e;
+  --aws-light-blue: #2e6db5;
+  --aws-purple: #9d4edd;
+  --aws-green: #00d4aa;
+  
+  /* Background & Text Colors */
+  --slidev-theme-primary: #ff9900;
+  --slidev-theme-background: #000000;
+  --slidev-theme-foreground: #ffffff;
+  --theme-background: #000000;
+  --theme-text: #ffffff;
+  --theme-text-secondary: #e0e0e0;
+  
+  /* Typography */
+  --theme-font-family: 'Amazon Ember', 'Helvetica Neue', Arial, sans-serif;
+  --theme-font-size-h1: 3rem;
+  --theme-font-size-h2: 2rem;
+  --theme-font-size-h3: 1.5rem;
+  --theme-font-size-p: 1.125rem;
+  --theme-font-size-footer: 0.5rem;
+  
+  /* Spacing */
+  --theme-padding: 2.5rem 3rem 1.5rem 3rem;
+  --theme-gap: 3rem;
+  
+  /* Gradient Backgrounds for Cover, Section, End slides */
+  --theme-gradient-cover: linear-gradient(135deg, #0a2540 0%, #1a4d7a 40%, #2e6db5 60%, #7b3f9e 80%, #9d4edd 100%);
+  --theme-gradient-section: linear-gradient(135deg, #0a2540 0%, #1a4d7a 40%, #2e6db5 60%, #265a6b 100%);
+  --theme-gradient-end: linear-gradient(135deg, #0f2942 0%, #1a4d8f 25%, #2e6db5 50%, #7b3f9e 75%, #9d4edd 100%);
+}
+
+/* Global Styles */
+body {
+  font-family: var(--theme-font-family);
+  background: #000000;
+  color: var(--theme-text);
+}
+
+/* Headings */
+h1 {
+  @apply text-5xl font-bold mb-6;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+h2 {
+  @apply text-4xl font-bold mb-4;
+  color: #ffffff;
+}
+
+h3 {
+  @apply text-3xl font-semibold mb-3;
+  color: #ffffff;
+}
+
+h4 {
+  @apply text-2xl font-semibold mb-2;
+  color: #ffffff;
+}
+
+/* Paragraphs */
+p {
+  @apply text-lg mb-4;
+  line-height: 1.6;
+  color: #ffffff;
+}
+
+/* Lists */
+ul, ol {
+  @apply text-lg mb-4;
+  padding-left: 2rem;
+}
+
+li {
+  @apply mb-2;
+  line-height: 1.6;
+}
+
+/* Links */
+a {
+  color: var(--aws-blue);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+a:hover {
+  color: var(--aws-orange);
+}
+
+/* Blockquotes */
+blockquote {
+  border-left: 4px solid var(--aws-blue);
+  padding-left: 1.5rem;
+  margin: 1.5rem 0;
+  font-style: italic;
+  color: #ffffff;
+  font-size: 1.25rem;
+}
+
+/* Strong/Bold */
+strong {
+  font-weight: 700;
+  color: #ffffff;
+}
+
+/* Emphasis/Italic */
+em {
+  font-style: italic;
+}
+
+/* Footer is now handled in individual layout components */
+
+/* Gradient Text Effect */
+.gradient-text {
+  background: linear-gradient(135deg, #00a1e0 0%, #00d4aa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+
+
+/* Page Number */
+.slidev-page-number {
+  position: absolute;
+  bottom: 1.5rem;
+  right: 2rem;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Tables */
+table {
+  @apply w-full my-4;
+  border-collapse: collapse;
+}
+
+th {
+  @apply text-left font-bold py-2 px-4;
+  background: rgba(0, 161, 224, 0.2);
+  border-bottom: 2px solid var(--aws-blue);
+}
+
+td {
+  @apply py-2 px-4;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Images */
+img {
+  @apply max-w-full h-auto;
+}
+
+/* Predefined Gradient Background Classes */
+/* Use these classes on any slide to apply gradient backgrounds */
+
+/* AWS Gradients */
+.bg-aws-default {
+  background: linear-gradient(135deg, #0a2540 0%, #1a4d7a 40%, #2e6db5 60%, #7b3f9e 80%, #9d4edd 100%) !important;
+}
+
+.bg-aws-blue {
+  background: linear-gradient(135deg, #232f3e 0%, #00a1e0 100%) !important;
+}
+
+.bg-aws-orange {
+  background: linear-gradient(135deg, #232f3e 0%, #ff9900 100%) !important;
+}
+
+.bg-aws-green {
+  background: linear-gradient(135deg, #232f3e 0%, #00d4aa 100%) !important;
+}
+
+.bg-aws-purple {
+  background: linear-gradient(135deg, #232f3e 0%, #9d4edd 100%) !important;
+}
+
+/* Theme Gradients */
+.bg-ocean {
+  background: linear-gradient(135deg, #0a4d68 0%, #088395 50%, #05bfdb 100%) !important;
+}
+
+.bg-sunset {
+  background: linear-gradient(135deg, #ff6b35 0%, #f7931e 50%, #c9184a 100%) !important;
+}
+
+.bg-forest {
+  background: linear-gradient(135deg, #1b4332 0%, #2d6a4f 50%, #52b788 100%) !important;
+}
+
+.bg-night {
+  background: linear-gradient(135deg, #0d1b2a 0%, #1b263b 50%, #415a77 100%) !important;
+}
+
+.bg-fire {
+  background: linear-gradient(135deg, #7f1d1d 0%, #dc2626 50%, #f97316 100%) !important;
+}
+
+.bg-royal {
+  background: linear-gradient(135deg, #4c1d95 0%, #7c3aed 50%, #a78bfa 100%) !important;
+}
+
+.bg-tech {
+  background: linear-gradient(135deg, #0e7490 0%, #0284c7 50%, #3b82f6 100%) !important;
+}
+
+/* Solid Color Backgrounds */
+.bg-black {
+  background: #000000 !important;
+}
+
+.bg-dark-gray {
+  background: #1a1a1a !important;
+}
+
+.bg-dark-blue {
+  background: rgb(20, 30, 44) !important;
+}
+
+.bg-aws-dark-blue {
+  background: #141e2c !important;
+}
+
+/* Mermaid Diagrams - Light Blue Theme (AWS Blue #00a1e0) */
+
+/* Arrow lines - Light Blue */
+.mermaid .edgePath .path {
+  stroke: #00a1e0 !important;
+  stroke-width: 2.5px !important;
+  fill: none !important;
+}
+
+/* Arrowheads - Light Blue */
+.mermaid .edgePath marker path {
+  fill: #00a1e0 !important;
+  stroke: #00a1e0 !important;
+}
+
+.mermaid marker path {
+  fill: #00a1e0 !important;
+  stroke: #00a1e0 !important;
+}
+
+/* Node boxes - Light Blue border, semi-transparent fill */
+.mermaid .node rect,
+.mermaid .node circle,
+.mermaid .node ellipse,
+.mermaid .node polygon {
+  fill: rgba(0, 161, 224, 0.12) !important;
+  stroke: #00a1e0 !important;
+  stroke-width: 2.5px !important;
+}
+
+/* Node text - White */
+.mermaid .node .label,
+.mermaid .nodeLabel {
+  color: #ffffff !important;
+  fill: #ffffff !important;
+  font-family: 'Amazon Ember', 'Helvetica Neue', Arial, sans-serif !important;
+  font-size: 14px !important;
+}
+
+/* Edge labels */
+.mermaid .edgeLabel {
+  background-color: rgba(20, 30, 44, 0.9) !important;
+  color: #ffffff !important;
+  fill: #ffffff !important;
+}
+
+.mermaid .edgeLabel rect {
+  fill: rgba(20, 30, 44, 0.9) !important;
+  stroke: none !important;
+}
+
+.mermaid .edgeLabel .label {
+  color: #ffffff !important;
+  fill: #ffffff !important;
+}
+
+/* Cluster/subgraph styling - Light Blue dashed border */
+.mermaid .cluster rect {
+  fill: rgba(0, 161, 224, 0.08) !important;
+  stroke: rgba(0, 161, 224, 0.6) !important;
+  stroke-width: 1.5px !important;
+  stroke-dasharray: 5, 5 !important;
+}
+
+.mermaid .cluster .label,
+.mermaid .cluster-label {
+  color: #ffffff !important;
+  fill: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+/* Flowchart specific - Light Blue lines */
+.mermaid .flowchart-link {
+  stroke: #00a1e0 !important;
+  stroke-width: 2.5px !important;
+}
+
+/* Sequence diagram styling */
+.mermaid .actor {
+  fill: rgba(0, 161, 224, 0.12) !important;
+  stroke: #00a1e0 !important;
+  stroke-width: 2px !important;
+}
+
+.mermaid .actor-line {
+  stroke: rgba(0, 161, 224, 0.5) !important;
+  stroke-width: 1px !important;
+  stroke-dasharray: 5, 5 !important;
+}
+
+.mermaid .messageLine0,
+.mermaid .messageLine1 {
+  stroke: #00a1e0 !important;
+  stroke-width: 2px !important;
+}
+
+.mermaid .messageText {
+  fill: #ffffff !important;
+  stroke: none !important;
+}
+
+.mermaid .note {
+  fill: rgba(0, 161, 224, 0.12) !important;
+  stroke: #4dc3f0 !important;
+  stroke-width: 1px !important;
+}
+
+.mermaid .noteText {
+  fill: #ffffff !important;
+}
