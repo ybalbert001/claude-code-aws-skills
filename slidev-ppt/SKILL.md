@@ -13,28 +13,7 @@ Create professional presentations using Slidev, a Markdown-based slide maker for
 
 When user requests presentation creation:
 
-1. **Read the complete guide** in `references/slidev-guide.md` - This contains all Slidev syntax, layouts, components, and best practices
-2. **Create project directory**: `ppt-{sanitized-topic-name}/`
-3. **Generate slides.md** with AWS dark theme (`theme: ../themes/aws-dark`)
-4. **Organize content**: Use `pages/` directory for presentations with 10+ slides
-5. **Provide preview command**: `npm install && npx slidev ppt-{topic-name}/slides.md`
-
-## Key Principles
-
-**ALWAYS read `references/slidev-guide.md` first** - It contains:
-- Complete Slidev syntax reference
-- Available layouts (cover, section, default, center, two-cols, image-right, end, etc.)
-- Content organization patterns (when to split into chapters)
-- Design rules (no animations, content density, diagram guidelines)
-- AWS dark theme usage instructions
-
-**Content creation rules:**
-- Use AWS dark theme by default: `theme: ../themes/aws-dark`
-- NO animations (no v-click, v-motion, v-clicks)
-- Split content: Use `layout: section` between topics, `pages/` directory for 10+ slides
-- Control image sizes: Always use `{width=500px}` or `{width=60%}`
-- Keep diagrams simple: 3-5 nodes max, use scale parameter
-- Use emoji for icons: 🚀 ✅ ❌ 💡 (safer than icon components)
+Please read the offical guide: https://sli.dev/guide/syntax
 
 ## Theme Support
 
@@ -160,7 +139,6 @@ Colors: `blue-green`, `blue-purple`, `orange-pink`
 - Create complex diagrams - keep to 3-5 nodes
 
 ✅ **DO:**
-- Read `references/slidev-guide.md` before starting
 - Use AWS dark theme by default
 - Split long presentations into chapters (pages/ directory)
 - Add section dividers with `layout: section`
@@ -169,30 +147,12 @@ Colors: `blue-green`, `blue-purple`, `orange-pink`
 
 ## Resources
 
-### Complete Documentation
-- **`references/slidev-guide.md`**: Comprehensive guide with all Slidev syntax, layouts, components, best practices, and detailed examples. **Read this file before creating any presentation.**
-
 ### Theme Assets
 - **`themes/aws-dark/`**: Complete AWS dark theme package with layouts, components, and styling
 - **`themes/aws-dark/README.md`**: Theme documentation and usage guide
 - **Future themes**: `themes/aws-light/`, `themes/custom/` can be added for extensibility
 
-## Preview and Export
-
-### Preview Presentation
-
-**Option 1: From slidev-ppt/ directory**
-```bash
-npm install && npx slidev ppt-{topic-name}/slides.md
-```
-
-**Option 2: From presentation directory (recommended)**
-```bash
-cd ppt-{topic-name}
-npm install && npx slidev slides.md
-```
-
-### Export to PDF/PPTX
+## Export to PDF/PPTX
 
 **Option 1: From slidev-ppt/ directory**
 ```bash
@@ -210,14 +170,17 @@ npx slidev export --format pptx   # exports to slides-export.pptx
 **Notes:**
 - If using AWS dark theme for the first time, install theme dependencies first: `cd slidev-ppt/themes/aws-dark && npm install`
 - The export command will generate files with `-export` suffix by default
-- PDF export requires a Chromium-based browser to be installed
+- PDF/PPT export requires a Chromium-based browser to be installed
+
+## Example for reference
+You could take a look at ./examples/aws-sample-presentation
 
 ## Example Usage
 
 **User request:** "Create a presentation about AWS Lambda"
 
 **Agent workflow:**
-1. Read `references/slidev-guide.md` to understand all Slidev capabilities
+1. Read https://sli.dev/guide/syntax to understand all Slidev capabilities
 2. Create directory: `ppt-aws-lambda/`
 3. Create `ppt-aws-lambda/slides.md` with:
    - AWS dark theme in frontmatter
@@ -226,6 +189,5 @@ npx slidev export --format pptx   # exports to slides-export.pptx
    - Content slides with appropriate layouts
    - End slide with summary
 4. If 10+ slides: Create `pages/` directory with chapter files
-5. Provide command: `npm install && npx slidev ppt-aws-lambda/slides.md`
+5. Export pdf/pptx`
 
-**Key point:** The detailed guide in `references/slidev-guide.md` contains all syntax, examples, and best practices. Always read it first to ensure correct Slidev usage and avoid common mistakes.
