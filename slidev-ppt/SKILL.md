@@ -9,6 +9,51 @@ description: Create and edit presentation slides using Slidev framework when use
 
 Create professional presentations using Slidev, a Markdown-based slide maker for developers. Supports code highlighting, Vue components, diagrams, and powerful layouts with AWS dark theme styling by default.
 
+## Prerequisites
+
+Before using this skill, install the required global dependencies:
+
+### Required Dependencies
+
+```bash
+# Install Slidev CLI globally
+npm install -g @slidev/cli
+
+# Install Playwright for PDF/PPTX export (includes Chromium browser)
+npm install -g playwright-chromium
+npx playwright install chromium
+```
+
+### System Requirements
+
+- **Node.js**: >= 18.0.0
+- **npm**: >= 9.0.0 (comes with Node.js)
+- **Chromium browser**: Automatically installed with playwright-chromium
+
+### Verification
+
+Verify the installation:
+
+```bash
+# Check Slidev version
+npx slidev --version
+
+# Check Node.js version
+node --version  # Should be >= 18.0.0
+```
+
+### AWS Dark Theme Setup
+
+The AWS dark theme is included in `themes/aws-dark/` and requires one-time installation:
+
+```bash
+cd slidev-ppt/themes/aws-dark
+npm install
+cd ../..
+```
+
+**Note**: Theme dependencies are local to the theme directory and don't need global installation.
+
 ## Quick Start Workflow
 
 When user requests presentation creation:
