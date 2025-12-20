@@ -201,15 +201,15 @@ Colors: `blue-green`, `blue-purple`, `orange-pink`
 
 **Option 1: From slidev-ppt/ directory**
 ```bash
-npx slidev export ppt-{topic-name}/slides.md --format pdf
-npx slidev export ppt-{topic-name}/slides.md --format pptx
+NODE_ENV=development npx slidev export ppt-{topic-name}/slides.md --format pdf
+NODE_ENV=development npx slidev export ppt-{topic-name}/slides.md --format pptx
 ```
 
 **Option 2: From presentation directory (recommended)**
 ```bash
 cd ppt-{topic-name}
-npx slidev export --format pdf    # exports to slides-export.pdf
-npx slidev export --format pptx   # exports to slides-export.pptx
+NODE_ENV=development npx slidev export --format pdf    # exports to slides-export.pdf
+NODE_ENV=development npx slidev export --format pptx   # exports to slides-export.pptx
 ```
 
 **Notes:**
