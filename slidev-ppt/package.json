@@ -1,0 +1,19 @@
+{
+  "name": "slidev-ppt",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "slidev --open",
+    "build": "slidev build",
+    "export": "slidev export"
+  },
+  "dependencies": {
+    "@slidev/cli": "^52.10.1",
+    "@slidev/theme-default": "latest",
+    "@slidev/theme-seriph": "latest",
+    "vue": "^3.5.25"
+  },
+  "devDependencies": {
+    "playwright-chromium": "^1.57.0"
+  }
+}
