@@ -9,66 +9,48 @@ description: Create and edit presentation slides using Slidev framework when use
 
 Create professional presentations using Slidev, a Markdown-based slide maker for developers. Supports code highlighting, Vue components, diagrams, and powerful layouts with AWS dark theme styling by default.
 
-## Prerequisites
-
-Before using this skill, install the required global dependencies:
-
-### Required Dependencies
-
-```bash
-# Install Slidev CLI globally
-npm install -g @slidev/cli
-
-# Install Playwright for PDF/PPTX export (includes Chromium browser)
-npm install -g playwright-chromium
-npx playwright install chromium
-```
-
-### System Requirements
-
-- **Node.js**: >= 18.0.0
-- **npm**: >= 9.0.0 (comes with Node.js)
-- **Chromium browser**: Automatically installed with playwright-chromium
-
-### Verification
-
-Verify the installation:
-
-```bash
-# Check Slidev version
-npx slidev --version
-
-# Check Node.js version
-node --version  # Should be >= 18.0.0
-```
-
-### AWS Dark Theme Setup
-
-The AWS dark theme is included in `themes/aws-dark/` and requires one-time installation:
-
-```bash
-cd slidev-ppt/themes/aws-dark
-npm install
-cd ../..
-```
-
-**Note**: Theme dependencies are local to the theme directory and don't need global installation.
-
 ## Quick Start Workflow
 
 When user requests presentation creation:
 
-Please read the offical guide: https://sli.dev/guide/syntax
+1. Read the official Slidev syntax guide: https://sli.dev/guide/syntax
+2. Choose and setup theme (see Theme Support section below)
+3. Create slides.md with frontmatter and content
+4. For 10+ slides, split into pages/ directory
+5. Test and export if needed
 
 ## Theme Support
 
-### AWS Dark Theme (Default)
+### Two Types of Themes
 
-Professional dark theme with AWS branding, located in `themes/aws-dark/`:
+**Local Themes** (in `slidev-ppt/themes/` directory):
+- Must be **copied** to each presentation directory
+- Use `theme: ./{theme-name}` in frontmatter
+- Example: AWS dark theme
 
+**External Themes** (from npm):
+- No copying needed, install via npm
+- Use `theme: {theme-name}` in frontmatter
+- Example: seriph, apple-basic, etc.
+
+### Using Local Themes (AWS Dark Theme)
+
+**Step 1: Copy theme to presentation directory**
+```bash
+# From slidev-ppt/ directory
+cp -r themes/aws-dark ppt-{topic}/aws-dark
+```
+
+**Step 2: Install theme dependencies (first time only)**
+```bash
+cd ppt-{topic}/aws-dark
+npm install
+```
+
+**Step 3: Reference in slides.md**
 ```yaml
 ---
-theme: ../themes/aws-dark
+theme: ./aws-dark
 ---
 ```
 
@@ -79,30 +61,26 @@ theme: ../themes/aws-dark
 - Background classes: `bg-ocean`, `bg-sunset`, `bg-forest`, etc.
 - Footer with AWS logo
 
-**Theme installation (first time only):**
-```bash
-cd slidev-ppt/themes/aws-dark
-npm install
-```
-
 **Theme documentation:** `themes/aws-dark/README.md`
 
-### Other Slidev Themes
+### Using External Themes
 
 Slidev supports themes from https://sli.dev/resources/theme-gallery:
 
-```yaml
----
-theme: seriph
----
-```
-
-Popular themes include: `seriph`, `default`, `apple-basic`, `shibainu`, `bricks`, `purplin`, etc.
-
-**Installation for external themes:**
+**Step 1: Install theme**
 ```bash
+cd ppt-{topic}/
 npm install slidev-theme-{theme-name}
 ```
+
+**Step 2: Reference in slides.md**
+```yaml
+---
+theme: {theme-name}
+---
+```
+
+Popular themes: `seriph`, `default`, `apple-basic`, `shibainu`, `bricks`, `purplin`, etc.
 
 ## Project Structure
 
@@ -213,7 +191,7 @@ NODE_ENV=development npx slidev export --format pptx   # exports to slides-expor
 ```
 
 **Notes:**
-- If using AWS dark theme for the first time, install theme dependencies first: `cd slidev-ppt/themes/aws-dark && npm install`
+- For local themes (like AWS dark), ensure you've copied the theme and installed its dependencies first
 - The export command will generate files with `-export` suffix by default
 - PDF/PPT export requires a Chromium-based browser to be installed
 
@@ -227,12 +205,14 @@ You could take a look at ./examples/aws-sample-presentation
 **Agent workflow:**
 1. Read https://sli.dev/guide/syntax to understand all Slidev capabilities
 2. Create directory: `ppt-aws-lambda/`
-3. Create `ppt-aws-lambda/slides.md` with:
-   - AWS dark theme in frontmatter
+3. Copy AWS dark theme: `cp -r themes/aws-dark ppt-aws-lambda/aws-dark`
+4. Install theme dependencies (first time): `cd ppt-aws-lambda/aws-dark && npm install`
+5. Create `ppt-aws-lambda/slides.md` with:
+   - Theme reference: `theme: ./aws-dark`
    - Cover slide with title
    - Section dividers for major topics
    - Content slides with appropriate layouts
    - End slide with summary
-4. If 10+ slides: Create `pages/` directory with chapter files
-5. Export pdf/pptx`
+6. If 10+ slides: Create `pages/` directory with chapter files
+7. Export pdf/pptx if needed
 
