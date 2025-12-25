@@ -27,5 +27,8 @@
   },
   "peerDependencies": {
     "@slidev/types": ">=0.48.0"
+  },
+  "dependencies": {
+    "@slidev/types": "^0.48.0"
   }
 }
