@@ -1,0 +1,10 @@
+{
+  "name": "claude-code-aws-skills",
+  "description": "A collection of Claude Code skills for AWS workflows, presentation creation, diagram editing, and content generation",
+  "version": "1.0.0",
+  "author": {
+    "name": "ybalbert"
+  },
+  "repository": "https://github.com/ybalbert/claude-code-aws-skills",
+  "license": "MIT"
+}

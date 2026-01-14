@@ -1,0 +1,60 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="管控诉求" id="access-control">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="800">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        
+        <!-- 中心标题 -->
+        <mxCell id="center" value="安全管控体系" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=16;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="500" y="320" width="200" height="80" as="geometry"/>
+        </mxCell>
+        
+        <!-- 1. 内部API访问管控 -->
+        <mxCell id="api-box" value="内部API访问管控" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="470" y="80" width="160" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="api-items" value="• API鉴权认证&#xa;• 访问频率限制&#xa;• 接口权限控制&#xa;• 调用日志审计" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=10;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="470" y="130" width="160" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="api-arrow" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;strokeWidth=2;strokeColor=#d6b656" edge="1" parent="1" source="api-items" target="center">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        
+        <!-- 2. 外部网络访问管控 -->
+        <mxCell id="net-box" value="外部网络访问管控" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=14;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="800" y="295" width="160" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="net-items" value="• 出站流量控制&#xa;• 域名白名单&#xa;• 端口访问限制&#xa;• 网络隔离策略" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=10;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="800" y="345" width="160" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="net-arrow" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;strokeWidth=2;strokeColor=#82b366" edge="1" parent="1" source="net-box" target="center">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        
+        <!-- 3. 磁盘读写管控 -->
+        <mxCell id="disk-box" value="磁盘读写管控" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="470" y="500" width="160" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="disk-items" value="• 目录访问限制&#xa;• 文件类型过滤&#xa;• 读写权限分离&#xa;• 敏感路径保护" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=10;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="470" y="550" width="160" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="disk-arrow" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;strokeWidth=2;strokeColor=#b85450" edge="1" parent="1" source="disk-box" target="center">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        
+        <!-- 4. 系统调用管控 -->
+        <mxCell id="sys-box" value="系统调用管控" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=14;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="140" y="295" width="160" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="sys-items" value="• Syscall白名单&#xa;• 进程执行限制&#xa;• 资源配额控制&#xa;• 沙箱隔离机制" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=10;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12" vertex="1" parent="1">
+          <mxGeometry x="140" y="345" width="160" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="sys-arrow" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;strokeWidth=2;strokeColor=#9673a6" edge="1" parent="1" source="sys-box" target="center">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
