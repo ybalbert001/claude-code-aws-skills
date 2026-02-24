@@ -91,6 +91,18 @@ class InstanceChecker:
         if success and stdout.strip():
             result["cuda_version"] = stdout.strip()
 
+        # 检查 CUDA Toolkit (nvcc)
+        success, stdout, stderr = self.executor.execute("nvcc --version 2>/dev/null | grep release || /usr/local/cuda/bin/nvcc --version 2>/dev/null | grep release")
+        if success and stdout.strip():
+            result["cuda_toolkit_installed"] = True
+            # 提取版本号，如 "release 12.8"
+            match = re.search(r'release (\d+\.\d+)', stdout)
+            if match:
+                result["cuda_toolkit_version"] = match.group(1)
+        else:
+            result["cuda_toolkit_installed"] = False
+            result["cuda_toolkit_version"] = ""
+
         return result
 
     def check_disk_space(self, path: str = "/") -> dict:
@@ -289,11 +301,10 @@ class InstanceChecker:
             "pid": 0
         }
 
-        # 检查 systemd 服务
-        success, stdout, stderr = self.executor.execute("systemctl is-active sglang 2>/dev/null")
-        if success:
+        # 检查启动脚本是否存在
+        success, stdout, stderr = self.executor.execute("test -f /opt/start_sglang.sh && echo 'exists'")
+        if success and "exists" in stdout:
             result["service_exists"] = True
-            result["service_running"] = stdout.strip() == "active"
 
         # 检查进程
         success, stdout, stderr = self.executor.execute("pgrep -f 'sglang.launch_server'")
@@ -395,6 +406,8 @@ def print_check_report(report: dict):
         for g in gpu["gpus"]:
             print(f"    - GPU {g['index']}: {g['name']} ({g['memory_total_mb']}MB, {g['memory_free_mb']}MB free)")
         print(f"    Driver: {gpu['driver_version']}, CUDA: {gpu['cuda_version']}")
+        toolkit_status = f"✓ {gpu.get('cuda_toolkit_version', 'unknown')}" if gpu.get('cuda_toolkit_installed') else "✗ Not installed (will be auto-installed)"
+        print(f"    CUDA Toolkit (nvcc): {toolkit_status}")
     else:
         print(f"\n✗ GPU: {gpu.get('error', 'Not available')}")
 

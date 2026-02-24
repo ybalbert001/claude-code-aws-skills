@@ -19,9 +19,15 @@ description: 在预先存在的 EC2 实例上部署 SGLang LLM 推理服务器�
    - 插件检测实例的可用性 (GPU、磁盘、Python 环境、网络)
 
 3. **部署方式参考 SGLang 官方文档**
-   - 安装方法: pip/uv 安装 sglang
-   - 启动参数: 参考 `references/sglang-docs.md`
-   - 服务管理: systemd 服务
+   - 安装方法: uv 安装 sglang (系统级)
+   - 启动参数: 参考 `references/sglang-docs.md` 或者 https://huggingface.co/{huggingface_model_id}
+   - 服务管理: nohup 后台进程
+
+4. **EC2 前置环境准备 (自动执行)**
+   - 安装 python3-pip
+   - 安装 uv 包管理器
+   - 安装 CUDA Toolkit (nvcc，deep_gemm 等组件依赖)
+   - 系统级安装 sglang
 
 ## 快速开始
 
@@ -87,11 +93,16 @@ python cleanup.py --host <IP> --username ec2-user --key-file ~/.ssh/my-key.pem
     │      ├─ 是否安装监控 [可选]
     │      └─ HuggingFace Token
     │
-    └─→ 6. 执行部署
-           ├─ 安装 sglang (pip/uv)
-           ├─ 配置 systemd 服务
+    ├─→ 6. 准备环境 (自动)
+    │      ├─ 安装 python3-pip
+    │      ├─ 安装 uv 包管理器
+    │      ├─ 安装 CUDA Toolkit (nvcc)
+    │      └─ 系统级安装 sglang
+    │
+    └─→ 7. 启动服务
+           ├─ 使用 nohup 后台启动
            ├─ [可选] 安装监控组件
-           └─ 启动服务并验证
+           └─ 验证服务状态
 ```
 
 ## 部署后端点
@@ -156,8 +167,14 @@ Grafana 仪表板 (`:3000`) 显示:
 
 ```bash
 # SSH 到实例后
-systemctl status sglang
-journalctl -u sglang -f
+# 查看进程
+ps aux | grep sglang
+
+# 查看日志
+tail -f /tmp/sglang.log
+
+# 停止服务
+pkill -f "sglang.launch_server"
 ```
 
 ### 常见问题
@@ -168,7 +185,10 @@ journalctl -u sglang -f
 | GPU 未检测到 | 确认实例类型支持 GPU，NVIDIA 驱动已安装 |
 | 内存不足 | 使用更大实例或启用 tensor parallelism |
 | 模型下载慢 | 检查网络连通性，或使用 HuggingFace 镜像 |
-| 服务启动失败 | 查看日志 `journalctl -u sglang` |
+| pip 未安装 | 部署脚本会自动安装 `sudo apt-get install -y python3-pip` |
+| CUDA Toolkit 未安装 | 部署脚本会自动安装 `sudo apt-get install -y cuda-toolkit-12-8` |
+| deep_gemm 报错 | 检查 CUDA_HOME 环境变量，确保 nvcc 可用 |
+| 服务启动失败 | 查看日志 `tail -f /tmp/sglang.log` |
 
 ## 参考文档
 
