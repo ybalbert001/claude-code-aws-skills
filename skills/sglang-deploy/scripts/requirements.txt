@@ -3,5 +3,8 @@
 # SSH 连接
 paramiko>=3.0.0
 
+# HTTP 请求 (HuggingFace API)
+requests>=2.28.0
+
 # AWS CLI (通常已预装)
 # awscli>=1.29.0

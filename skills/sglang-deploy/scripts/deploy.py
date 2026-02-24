@@ -22,25 +22,61 @@ from typing import Optional
 
 from ssh_executor import SSHExecutor
 from instance_checker import InstanceChecker, print_check_report
+from hf_api import fetch_trending_models, fetch_model_params, parse_params_from_name, estimate_model_requirements, clear_cache as clear_hf_cache
 
 
 def load_models_config():
-    """加载模型配置"""
-    script_dir = Path(__file__).parent
-    models_file = script_dir.parent / "references" / "models.json"
+    """从 HuggingFace API 获取 trending 模型列表 (32B+)"""
+    print("正在从 HuggingFace 获取 trending 32B+ 模型...")
+    models = fetch_trending_models(limit=15, min_params_billions=32)
+    if models:
+        print(f"已获取 {len(models)} 个模型")
+    else:
+        print("警告: 无法从 HuggingFace 获取模型列表，请检查网络连接")
+    return {"models": models}
 
-    if models_file.exists():
-        with open(models_file) as f:
-            return json.load(f)
-    return {"models": []}
 
+def get_model_config(model_id: str, models_list: list = None):
+    """
+    获取指定模型的配置
 
-def get_model_config(model_id: str):
-    """获取指定模型的配置"""
-    config = load_models_config()
-    for model in config.get("models", []):
-        if model["id"] == model_id:
-            return model
+    Args:
+        model_id: 短 ID 或 HuggingFace 模型 ID (如 Qwen/Qwen2.5-72B-Instruct)
+        models_list: 可选的模型列表，避免重复 API 调用
+    """
+    # 先在已有列表中查找
+    if models_list:
+        for model in models_list:
+            if model["id"] == model_id or model.get("hf_model_id") == model_id:
+                return model
+
+    # 如果看起来像 HuggingFace ID，动态生成配置
+    if "/" in model_id:
+        print(f"正在获取模型信息: {model_id}")
+        params_total = fetch_model_params(model_id)
+        params_billions = None
+
+        if params_total:
+            params_billions = params_total / 1e9
+        else:
+            params_billions = parse_params_from_name(model_id)
+
+        if params_billions is None:
+            params_billions = 32.0  # 默认假设
+
+        requirements = estimate_model_requirements(params_billions, model_id)
+
+        return {
+            "id": model_id.split("/")[-1].lower(),
+            "name": model_id.split("/")[-1],
+            "hf_model_id": model_id,
+            "min_gpu_memory_gb": requirements["min_gpu_memory_gb"],
+            "recommended_instance": requirements["recommended_instance"],
+            "recommended_tp": requirements["recommended_tp"],
+            "params_billions": round(params_billions, 1),
+            "source": "custom"
+        }
+
     return None
 
 
@@ -143,41 +179,96 @@ def check_instance(ssh_info: dict) -> Optional[dict]:
         return None
 
 
+def select_model_source() -> Optional[str]:
+    """让用户选择模型来源"""
+    sources = [
+        {"id": "trending", "name": "Trending Models (32B+ from HuggingFace)", "extra": ""},
+        {"id": "custom", "name": "Custom Model ID (输入任意 HF 模型)", "extra": ""},
+    ]
+
+    selected = select_from_list(sources, "请选择模型来源:", "name", "id")
+    return selected["id"] if selected else None
+
+
 def select_model(args, gpu_count: int) -> Optional[dict]:
     """选择部署模型"""
     print("\n" + "=" * 60)
     print("选择部署模型")
     print("=" * 60)
 
-    config = load_models_config()
-    models = config.get("models", [])
-
+    # 如果通过参数指定了模型
     if args.model:
         model_config = get_model_config(args.model)
         if not model_config:
-            print(f"错误: 模型 '{args.model}' 未找到")
-            print("可用模型:")
-            for m in models:
-                print(f"  - {m['id']}")
+            print(f"错误: 无法获取模型 '{args.model}' 的配置")
+            print("提示: 使用 HuggingFace 格式如 'Qwen/Qwen2.5-72B-Instruct'")
             return None
         return model_config
 
-    # 根据 GPU 数量过滤和排序模型
+    # 交互式选择模型来源
+    source = select_model_source()
+    if not source:
+        return None
+
+    if source == "custom":
+        # 自定义模型 ID 输入
+        print("\n请输入 HuggingFace 模型 ID (例如: 'Qwen/Qwen2.5-72B-Instruct'):")
+        custom_id = input("Model ID: ").strip()
+        if not custom_id:
+            print("错误: 必须提供模型 ID")
+            return None
+
+        model_config = get_model_config(custom_id)
+        if model_config:
+            print(f"\n模型配置已生成:")
+            print(f"  参数量: {model_config.get('params_billions', 'N/A')}B")
+            print(f"  预估显存: {model_config['min_gpu_memory_gb']}GB")
+            print(f"  推荐 TP: {model_config['recommended_tp']}")
+            print(f"  推荐实例: {model_config['recommended_instance']}")
+            confirm = input("\n使用此配置? [Y/n]: ").strip().lower()
+            if confirm == 'n':
+                return None
+        return model_config
+
+    # 从 HuggingFace 获取 trending 模型
+    config = load_models_config()
+    models = config.get("models", [])
+
+    if not models:
+        print("\n无法获取模型列表")
+        print("提示: 请检查网络连接，或使用 Custom Model ID 选项")
+        return None
+
+    # 根据 GPU 数量过滤和显示模型
     suitable_models = []
     for m in models:
         rec_tp = m.get("recommended_tp", 1)
         suitable = "✓" if rec_tp <= gpu_count else "⚠"
+
+        # 构建显示信息
+        extra_parts = []
+        if m.get("params_billions"):
+            extra_parts.append(f"{m['params_billions']}B")
+        extra_parts.append(f"TP={rec_tp}")
+        if m.get("likes"):
+            extra_parts.append(f"likes:{m['likes']}")
+
         suitable_models.append({
             "id": m["id"],
             "name": m["name"],
-            "extra": f"({suitable} 推荐: {m['recommended_instance']}, TP={rec_tp})"
+            "hf_model_id": m.get("hf_model_id", m["name"]),
+            "extra": f"({suitable} {', '.join(extra_parts)})"
         })
 
+    # 显示选择列表
+    print(f"\n可用模型 (共 {len(suitable_models)} 个):")
     selected = select_from_list(suitable_models, "请选择要部署的模型:", "name", "id")
     if not selected:
         return None
 
-    return get_model_config(selected["id"])
+    # 返回完整配置
+    hf_id = selected.get("hf_model_id", "")
+    return get_model_config(hf_id if "/" in hf_id else selected["id"], models)
 
 
 def configure_deployment(args, model_config: dict, gpu_info: dict) -> dict:
@@ -672,15 +763,24 @@ def main():
 
     # 列出模型
     if args.list_models:
+        print("\n" + "=" * 60)
+        print("Trending 32B+ SGLang Models (from HuggingFace)")
+        print("=" * 60)
         config = load_models_config()
-        print("\n可用模型:")
-        print("-" * 60)
-        for model in config.get("models", []):
-            print(f"\n  {model['id']}")
-            print(f"    名称: {model['name']}")
-            print(f"    HuggingFace: {model['hf_model_id']}")
-            print(f"    最小显存: {model['min_gpu_memory_gb']}GB")
-            print(f"    推荐配置: {model['recommended_instance']} (TP={model['recommended_tp']})")
+        models = config.get("models", [])
+        if not models:
+            print("\n无法获取模型列表，请检查网络连接")
+            return 1
+        for i, model in enumerate(models, 1):
+            print(f"\n  {i}. {model['name']}")
+            print(f"     HuggingFace: {model['hf_model_id']}")
+            print(f"     参数量: {model.get('params_billions', 'N/A')}B")
+            print(f"     显存需求: {model['min_gpu_memory_gb']}GB")
+            print(f"     推荐配置: {model['recommended_instance']} (TP={model['recommended_tp']})")
+            if model.get('likes'):
+                print(f"     Likes: {model['likes']}")
+        print("\n" + "-" * 60)
+        print("提示: 也可以使用自定义模型 ID，如 'Qwen/Qwen2.5-72B-Instruct'")
         print()
         return 0
 
