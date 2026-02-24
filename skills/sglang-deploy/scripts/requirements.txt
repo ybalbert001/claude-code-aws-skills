@@ -1,0 +1,7 @@
+# SGLang Deploy 依赖
+
+# SSH 连接
+paramiko>=3.0.0
+
+# AWS CLI (通常已预装)
+# awscli>=1.29.0
