@@ -91,13 +91,13 @@ def ssh_upload_content(
     """
     key_file = os.path.expanduser(key_file)
 
-    # 创建远程目录
+    # 创建远程目录 (使用 sudo 以支持系统路径)
     remote_dir = os.path.dirname(remote_path)
     if remote_dir:
-        ssh_run(host, user, key_file, f"mkdir -p {remote_dir}", port)
+        ssh_run(host, user, key_file, f"sudo mkdir -p {remote_dir}", port)
 
-    # 通过 ssh + cat 写入
-    args = ["ssh"] + _ssh_opts(key_file, port, 30) + [f"{user}@{host}", f"cat > {remote_path}"]
+    # 通过 ssh + sudo tee 写入 (支持写入需要 root 权限的路径)
+    args = ["ssh"] + _ssh_opts(key_file, port, 30) + [f"{user}@{host}", f"sudo tee {remote_path} > /dev/null"]
 
     try:
         result = subprocess.run(args, input=content, capture_output=True, text=True, timeout=60)
@@ -105,7 +105,7 @@ def ssh_upload_content(
             return False, f"Upload failed: {result.stderr}"
 
         # 设置权限
-        ssh_run(host, user, key_file, f"chmod {oct(mode)[2:]} {remote_path}", port)
+        ssh_run(host, user, key_file, f"sudo chmod {oct(mode)[2:]} {remote_path}", port)
         return True, f"Uploaded to {remote_path}"
     except Exception as e:
         return False, f"Upload failed: {e}"
