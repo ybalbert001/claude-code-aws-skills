@@ -155,6 +155,24 @@ else
     sudo pip3 install --break-system-packages "sglang[all]"
 fi
 
+# 修复 PyTorch 2.9.1 与 CuDNN 兼容性问题
+# 参考: https://github.com/pytorch/pytorch/issues/168167
+echo "=== 检查并修复 CuDNN 兼容性 ==="
+PYTORCH_VERSION=$(python3 -c "import torch; print(torch.__version__)" 2>/dev/null || echo "unknown")
+if [[ "$PYTORCH_VERSION" == 2.9.* ]]; then
+    echo "检测到 PyTorch $PYTORCH_VERSION，升级 CuDNN 到 9.16+ ..."
+    if command -v uv &> /dev/null; then
+        sudo $(which uv) pip install nvidia-cudnn-cu12==9.16.0.29 --system --break-system-packages
+    elif [ -f ~/.local/bin/uv ]; then
+        sudo ~/.local/bin/uv pip install nvidia-cudnn-cu12==9.16.0.29 --system --break-system-packages
+    else
+        sudo pip3 install --break-system-packages nvidia-cudnn-cu12==9.16.0.29
+    fi
+    echo "CuDNN 升级完成"
+else
+    echo "PyTorch 版本: $PYTORCH_VERSION，无需升级 CuDNN"
+fi
+
 echo "=== SGLang 安装完成 ==="
 """
 
@@ -273,20 +291,65 @@ def execute_deployment(ssh_info: dict, model_config: dict, deploy_config: dict) 
         else:
             print("\n[4/5] 跳过监控组件安装")
 
-        # 5. 启动服务
+        # 5. 启动服务并验证
         print("\n[5/5] 启动 SGLang 服务...")
         ssh_run(host, user, key, "sudo /opt/start_sglang.sh", port)
 
-        print("等待服务启动...")
-        time.sleep(10)
+        service_port = deploy_config.get("port", 30000)
+        max_retries = 30  # 最多等待 5 分钟 (30 * 10s)
+        retry_interval = 10
 
-        success, stdout, _ = ssh_run(host, user, key, "pgrep -f 'sglang.launch_server' && echo 'SGLang is running'", port)
-        if "SGLang is running" in stdout:
-            print("✓ SGLang 服务启动成功")
+        print(f"等待服务启动 (最多 {max_retries * retry_interval // 60} 分钟)...")
+
+        for i in range(max_retries):
+            time.sleep(retry_interval)
+
+            # 检查进程是否存在
+            success, stdout, _ = ssh_run(host, user, key, "pgrep -f 'sglang.launch_server'", port)
+            if not stdout.strip():
+                # 进程不存在，检查日志中的错误
+                _, log_output, _ = ssh_run(host, user, key, "tail -50 /tmp/sglang.log 2>/dev/null", port)
+                if "Error" in log_output or "RuntimeError" in log_output or "Exception" in log_output:
+                    print(f"\n✗ SGLang 服务启动失败，日志中发现错误:")
+                    # 提取关键错误信息
+                    for line in log_output.split('\n'):
+                        if any(err in line for err in ['Error', 'RuntimeError', 'Exception', 'CRITICAL']):
+                            print(f"  {line.strip()}")
+                    print(f"\n完整日志: ssh -i {key} {user}@{host} 'tail -100 /tmp/sglang.log'")
+                    return False
+                print(f"  [{i+1}/{max_retries}] 进程未检测到，继续等待...")
+                continue
+
+            # 进程存在，尝试调用 API 验证服务健康
+            health_check = f"curl -s -o /dev/null -w '%{{http_code}}' --connect-timeout 5 http://localhost:{service_port}/v1/models"
+            _, http_code, _ = ssh_run(host, user, key, health_check, port)
+            http_code = http_code.strip()
+
+            if http_code == "200":
+                print(f"✓ SGLang 服务启动成功 (API 健康检查通过)")
+                return True
+            elif http_code == "000":
+                print(f"  [{i+1}/{max_retries}] 服务正在初始化，模型加载中...")
+            else:
+                print(f"  [{i+1}/{max_retries}] API 返回 {http_code}，继续等待...")
+
+        # 超时，检查最终状态
+        print(f"\n⚠ 服务启动超时 ({max_retries * retry_interval // 60} 分钟)")
+        _, log_tail, _ = ssh_run(host, user, key, "tail -30 /tmp/sglang.log 2>/dev/null", port)
+        if log_tail.strip():
+            print("最近日志:")
+            for line in log_tail.strip().split('\n')[-10:]:
+                print(f"  {line}")
+
+        # 检查进程是否还在运行（可能还在加载大模型）
+        success, stdout, _ = ssh_run(host, user, key, "pgrep -f 'sglang.launch_server'", port)
+        if stdout.strip():
+            print(f"\n⚠ 进程仍在运行，可能正在加载大模型，请手动检查:")
+            print(f"  ssh -i {key} {user}@{host} 'tail -f /tmp/sglang.log'")
+            return True  # 进程在运行，可能只是加载慢
         else:
-            print("⚠ SGLang 进程未检测到，请检查日志: tail -f /tmp/sglang.log")
-
-        return True
+            print(f"\n✗ 服务启动失败，进程已退出")
+            return False
 
     except Exception as e:
         print(f"\n✗ 部署失败: {e}")
