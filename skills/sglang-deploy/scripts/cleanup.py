@@ -86,7 +86,7 @@ def interactive_cleanup(args):
 
     if not args.key_file:
         if non_interactive:
-            print("错误: 非交互式模式需要 --key-file 参数")
+            print("错误: 非交互式模式需要 --key_file 参数")
             return 1
         args.key_file = input("SSH 私钥文件路径: ").strip()
         if not args.key_file:
@@ -139,7 +139,7 @@ def main():
     parser = argparse.ArgumentParser(description="清理 EC2 实例上的 SGLang 部署")
     parser.add_argument("--host", type=str, help="EC2 实例 IP 或域名")
     parser.add_argument("--username", type=str, default="ec2-user", help="SSH 用户名")
-    parser.add_argument("--key-file", type=str, help="SSH 私钥文件路径")
+    parser.add_argument("--key_file", type=str, help="SSH 私钥文件路径")
     parser.add_argument("--port", type=int, default=22, help="SSH 端口")
     parser.add_argument("--force", "-f", action="store_true", help="不询问确认直接清理")
     parser.add_argument("--uninstall", action="store_true", help="同时卸载 sglang 包")

@@ -3,14 +3,15 @@
 SGLang AWS Deployment Script
 
 通过 SSH 在预先存在的 EC2 实例上部署 SGLang LLM 推理服务器。
+纯 CLI 模式，所有参数通过命令行提供。
 """
 
+import argparse
 import os
 import sys
 import time
-from typing import Optional
 
-from ssh_utils import ssh_run, ssh_script, ssh_upload_content, ssh_test
+from ssh_utils import ssh_run, ssh_script, ssh_upload_content
 from instance_checker import InstanceChecker, print_check_report
 from hf_api import fetch_trending_models, fetch_model_params, parse_params_from_name, estimate_model_requirements
 
@@ -22,119 +23,44 @@ def load_models_config():
     if models:
         print(f"已获取 {len(models)} 个模型")
     else:
-        print("警告: 无法从 HuggingFace 获取模型列表，请检查网络连接")
+        print("警告: 无法从 HuggingFace 获取模型列表")
     return {"models": models}
 
 
-def get_model_config(model_id: str, models_list: list = None):
+def get_model_config(model_id: str):
     """获取指定模型的配置"""
-    if models_list:
-        for model in models_list:
-            if model["id"] == model_id or model.get("hf_model_id") == model_id:
-                return model
-
-    if "/" in model_id:
-        print(f"正在获取模型信息: {model_id}")
-        params_total = fetch_model_params(model_id)
-        params_billions = None
-
-        if params_total:
-            params_billions = params_total / 1e9
-        else:
-            params_billions = parse_params_from_name(model_id)
-
-        if params_billions is None:
-            params_billions = 32.0
-
-        requirements = estimate_model_requirements(params_billions, model_id)
-
-        return {
-            "id": model_id.split("/")[-1].lower(),
-            "name": model_id.split("/")[-1],
-            "hf_model_id": model_id,
-            "min_gpu_memory_gb": requirements["min_gpu_memory_gb"],
-            "recommended_instance": requirements["recommended_instance"],
-            "recommended_tp": requirements["recommended_tp"],
-            "params_billions": round(params_billions, 1),
-            "source": "custom"
-        }
-
-    return None
-
-
-def select_from_list(items: list, prompt: str, name_key: str = "name", id_key: str = "id"):
-    """交互式列表选择"""
-    if not items:
+    if "/" not in model_id:
+        print(f"错误: 模型 ID 格式应为 'org/model'，如 'Qwen/Qwen2.5-72B-Instruct'")
         return None
 
-    print(f"\n{prompt}")
-    for i, item in enumerate(items, 1):
-        name = item.get(name_key, "N/A")
-        item_id = item.get(id_key, "N/A")
-        extra = item.get("extra", "")
-        print(f"  {i}. {item_id} - {name} {extra}")
+    print(f"正在获取模型信息: {model_id}")
+    params_total = fetch_model_params(model_id)
+    params_billions = None
 
-    while True:
-        try:
-            choice = input("\n请输入序号 (或 'q' 退出): ").strip()
-            if choice.lower() == 'q':
-                return None
-            idx = int(choice) - 1
-            if 0 <= idx < len(items):
-                return items[idx]
-            print("无效选择，请重试。")
-        except ValueError:
-            print("请输入数字。")
-
-
-def get_ssh_connection_info(args) -> Optional[dict]:
-    """获取 SSH 连接信息"""
-    print("\n" + "=" * 60)
-    print("SSH 连接配置")
-    print("=" * 60)
-
-    if args.host:
-        host = args.host
+    if params_total:
+        params_billions = params_total / 1e9
     else:
-        host = input("\n请输入 EC2 实例 IP 或域名: ").strip()
-        if not host:
-            print("错误: 必须提供主机地址")
-            return None
+        params_billions = parse_params_from_name(model_id)
 
-    if args.username:
-        username = args.username
-    else:
-        username = input(f"SSH 用户名 [默认: ec2-user]: ").strip() or "ec2-user"
+    if params_billions is None:
+        params_billions = 32.0
+        print(f"  无法获取参数量，使用默认值 {params_billions}B")
 
-    if args.key_file:
-        key_file = args.key_file
-    else:
-        key_file = input("SSH 私钥文件路径: ").strip()
-        if not key_file:
-            print("错误: 必须提供 SSH 私钥文件")
-            return None
+    requirements = estimate_model_requirements(params_billions, model_id)
 
-    key_file = os.path.expanduser(key_file)
-    if not os.path.exists(key_file):
-        print(f"错误: 密钥文件不存在: {key_file}")
-        return None
-
-    if args.port:
-        port = args.port
-    else:
-        port_str = input("SSH 端口 [默认: 22]: ").strip()
-        port = int(port_str) if port_str else 22
-
-    return {"host": host, "user": username, "key": key_file, "port": port}
+    return {
+        "id": model_id.split("/")[-1].lower(),
+        "name": model_id.split("/")[-1],
+        "hf_model_id": model_id,
+        "min_gpu_memory_gb": requirements["min_gpu_memory_gb"],
+        "recommended_instance": requirements["recommended_instance"],
+        "recommended_tp": requirements["recommended_tp"],
+        "params_billions": round(params_billions, 1),
+    }
 
 
-def check_instance(ssh_info: dict, auto_continue: bool = False) -> Optional[dict]:
-    """检测实例可用性
-
-    Args:
-        ssh_info: SSH 连接信息
-        auto_continue: 如果为 True，遇到问题时自动继续（非交互式模式）
-    """
+def check_instance(ssh_info: dict) -> dict | None:
+    """检测实例可用性"""
     print("\n" + "=" * 60)
     print("检测实例配置...")
     print("=" * 60)
@@ -145,11 +71,7 @@ def check_instance(ssh_info: dict, auto_continue: bool = False) -> Optional[dict
         print_check_report(report)
 
         if not report["summary"]["ready_for_deployment"]:
-            print("\n⚠ 实例存在问题")
-            if auto_continue:
-                print("  --yes 模式，继续部署...")
-            elif input("继续部署? [y/N]: ").strip().lower() != 'y':
-                return None
+            print("\n⚠ 实例存在问题，继续部署...")
 
         return report
 
@@ -158,94 +80,8 @@ def check_instance(ssh_info: dict, auto_continue: bool = False) -> Optional[dict
         return None
 
 
-def select_model_source() -> Optional[str]:
-    """让用户选择模型来源"""
-    sources = [
-        {"id": "trending", "name": "Trending Models (32B+ from HuggingFace)", "extra": ""},
-        {"id": "custom", "name": "Custom Model ID (输入任意 HF 模型)", "extra": ""},
-    ]
-    selected = select_from_list(sources, "请选择模型来源:", "name", "id")
-    return selected["id"] if selected else None
-
-
-def select_model(args, gpu_count: int) -> Optional[dict]:
-    """选择部署模型"""
-    print("\n" + "=" * 60)
-    print("选择部署模型")
-    print("=" * 60)
-
-    if args.model:
-        model_config = get_model_config(args.model)
-        if not model_config:
-            print(f"错误: 无法获取模型 '{args.model}' 的配置")
-            return None
-        return model_config
-
-    source = select_model_source()
-    if not source:
-        return None
-
-    if source == "custom":
-        print("\n请输入 HuggingFace 模型 ID (例如: 'Qwen/Qwen2.5-72B-Instruct'):")
-        custom_id = input("Model ID: ").strip()
-        if not custom_id:
-            print("错误: 必须提供模型 ID")
-            return None
-
-        model_config = get_model_config(custom_id)
-        if model_config:
-            print(f"\n模型配置已生成:")
-            print(f"  参数量: {model_config.get('params_billions', 'N/A')}B")
-            print(f"  预估显存: {model_config['min_gpu_memory_gb']}GB")
-            print(f"  推荐 TP: {model_config['recommended_tp']}")
-            confirm = input("\n使用此配置? [Y/n]: ").strip().lower()
-            if confirm == 'n':
-                return None
-        return model_config
-
-    config = load_models_config()
-    models = config.get("models", [])
-
-    if not models:
-        print("\n无法获取模型列表，请使用 Custom Model ID")
-        return None
-
-    suitable_models = []
-    for m in models:
-        rec_tp = m.get("recommended_tp", 1)
-        suitable = "✓" if rec_tp <= gpu_count else "⚠"
-        extra_parts = []
-        if m.get("params_billions"):
-            extra_parts.append(f"{m['params_billions']}B")
-        extra_parts.append(f"TP={rec_tp}")
-        if m.get("likes"):
-            extra_parts.append(f"likes:{m['likes']}")
-
-        suitable_models.append({
-            "id": m["id"],
-            "name": m["name"],
-            "hf_model_id": m.get("hf_model_id", m["name"]),
-            "extra": f"({suitable} {', '.join(extra_parts)})"
-        })
-
-    print(f"\n可用模型 (共 {len(suitable_models)} 个):")
-    selected = select_from_list(suitable_models, "请选择要部署的模型:", "name", "id")
-    if not selected:
-        return None
-
-    hf_id = selected.get("hf_model_id", "")
-    return get_model_config(hf_id if "/" in hf_id else selected["id"], models)
-
-
-def configure_deployment(args, model_config: dict, gpu_info: dict, non_interactive: bool = False) -> dict:
-    """配置部署参数
-
-    Args:
-        args: 命令行参数
-        model_config: 模型配置
-        gpu_info: GPU 信息
-        non_interactive: 如果为 True，使用默认值而不是交互式输入
-    """
+def configure_deployment(args, model_config: dict, gpu_info: dict) -> dict:
+    """配置部署参数"""
     print("\n" + "=" * 60)
     print("配置部署参数")
     print("=" * 60)
@@ -256,46 +92,21 @@ def configure_deployment(args, model_config: dict, gpu_info: dict, non_interacti
     default_tp = min(recommended_tp, gpu_count)
 
     # 服务端口
-    if args.service_port:
-        config["port"] = args.service_port
-    elif non_interactive:
-        config["port"] = 30000
-        print(f"  端口: 30000 (默认)")
-    else:
-        port_str = input(f"服务端口 [默认: 30000]: ").strip()
-        config["port"] = int(port_str) if port_str else 30000
+    config["port"] = args.service_port if args.service_port else 30000
+    print(f"  端口: {config['port']}")
 
     # Tensor Parallelism
-    if args.tp:
-        config["tp"] = args.tp
-    elif non_interactive:
-        config["tp"] = default_tp
-        print(f"  TP: {default_tp} (自动)")
-    else:
-        print(f"\n检测到 {gpu_count} 个 GPU，模型推荐 TP={recommended_tp}")
-        tp_str = input(f"Tensor Parallelism [默认: {default_tp}]: ").strip()
-        config["tp"] = int(tp_str) if tp_str else default_tp
+    config["tp"] = args.tp if args.tp else default_tp
+    print(f"  TP: {config['tp']} (GPU数: {gpu_count}, 推荐: {recommended_tp})")
 
     # 监控组件
-    if args.enable_monitoring is not None:
-        config["enable_monitoring"] = args.enable_monitoring
-    elif non_interactive:
-        config["enable_monitoring"] = False
-        print("  监控: 否 (默认)")
-    else:
-        monitor = input("\n是否安装监控组件? [y/N]: ").strip().lower()
-        config["enable_monitoring"] = monitor == 'y'
+    config["enable_monitoring"] = args.enable_monitoring if args.enable_monitoring is not None else False
+    print(f"  监控: {'是' if config['enable_monitoring'] else '否'}")
 
     # HuggingFace Token
     if args.hf_token:
         config["hf_token"] = args.hf_token
-    elif not non_interactive:
-        needs_token = "llama" in model_config["hf_model_id"].lower()
-        if needs_token:
-            print("\n该模型可能需要 HuggingFace Token")
-        token = input("HuggingFace Token (可选): ").strip()
-        if token:
-            config["hf_token"] = token
+        print("  HF Token: 已设置")
 
     return config
 
@@ -327,7 +138,7 @@ echo "=== 前置环境准备完成 ==="
 """
 
 
-def generate_install_script(model_config: dict, deploy_config: dict) -> str:
+def generate_install_script(deploy_config: dict) -> str:
     """生成 SGLang 安装脚本"""
     hf_token = deploy_config.get("hf_token", "")
     return f"""#!/bin/bash
@@ -437,7 +248,7 @@ def execute_deployment(ssh_info: dict, model_config: dict, deploy_config: dict) 
 
         # 2. 安装 SGLang
         print("\n[2/5] 安装 SGLang...")
-        success, stdout, stderr = ssh_script(host, user, key, generate_install_script(model_config, deploy_config), port, timeout=900)
+        success, stdout, stderr = ssh_script(host, user, key, generate_install_script(deploy_config), port, timeout=900)
         if not success:
             print(f"✗ SGLang 安装失败: {stderr}")
             return False
@@ -505,61 +316,41 @@ def print_deployment_summary(ssh_info: dict, model_config: dict, deploy_config: 
 ''')
 
 
-def interactive_deploy(args):
-    """交互式/非交互式部署流程
-
-    当提供 --yes 参数且所有必需参数都已提供时，将以非交互式模式运行。
-    """
+def deploy(args) -> int:
+    """执行部署流程"""
     print("=" * 60)
-    print("SGLang AWS Deployment - SSH 远程部署模式")
+    print("SGLang AWS Deployment - SSH 远程部署")
     print("=" * 60)
 
-    # 检查是否为非交互式模式
-    non_interactive = getattr(args, 'yes', False)
+    # 1. 验证计算资源类型
+    print("\n[1/5] 验证计算资源类型")
+    if args.resource_type == "hyperpod":
+        print("✗ Hyperpod 集群支持即将推出，请使用 EC2 实例")
+        return 1
+    print(f"  资源类型: {args.resource_type}")
 
-    # 1. 选择计算资源类型
-    print("\n[1/6] 选择计算资源类型")
-    if args.resource_type:
-        # 使用命令行参数
-        if args.resource_type == "hyperpod":
-            print("\n⚠ Hyperpod 集群支持即将推出，请先使用 EC2 实例。")
-            return 1
-        print(f"  使用: {args.resource_type}")
-    else:
-        # 交互式选择
-        resource_types = [
-            {"id": "ec2", "name": "EC2 实例", "extra": "(当前支持)"},
-            {"id": "hyperpod", "name": "Hyperpod 集群", "extra": "(即将支持)"}
-        ]
-        selected = select_from_list(resource_types, "请选择计算资源类型:", "name", "id")
-        if not selected:
-            print("部署取消。")
-            return 1
-
-        if selected["id"] == "hyperpod":
-            print("\n⚠ Hyperpod 集群支持即将推出，请先使用 EC2 实例。")
-            return 1
-
-    # 2. 获取 SSH 连接信息
-    print("\n[2/6] 获取 SSH 连接信息")
-    # 非交互式模式下检查必需参数
-    if non_interactive:
-        if not args.host:
-            print("错误: 非交互式模式需要 --host 参数")
-            return 1
-        if not args.key_file:
-            print("错误: 非交互式模式需要 --key-file 参数")
-            return 1
-    ssh_info = get_ssh_connection_info(args)
-    if not ssh_info:
-        print("部署取消。")
+    # 2. 构建 SSH 连接信息
+    print("\n[2/5] SSH 连接配置")
+    key_file = os.path.expanduser(args.key_file)
+    if not os.path.exists(key_file):
+        print(f"✗ 密钥文件不存在: {key_file}")
         return 1
 
+    ssh_info = {
+        "host": args.host,
+        "user": args.username,
+        "key": key_file,
+        "port": args.port
+    }
+    print(f"  主机: {ssh_info['host']}")
+    print(f"  用户: {ssh_info['user']}")
+    print(f"  端口: {ssh_info['port']}")
+
     # 3. 检测实例可用性
-    print("\n[3/6] 检测实例可用性")
-    report = check_instance(ssh_info, auto_continue=non_interactive)
+    print("\n[3/5] 检测实例可用性")
+    report = check_instance(ssh_info)
     if not report:
-        print("部署取消。")
+        print("✗ 无法连接到实例")
         return 1
 
     gpu_info = report.get("gpu", {})
@@ -569,25 +360,23 @@ def interactive_deploy(args):
         print("\n✗ 未检测到 GPU，无法部署 SGLang")
         return 1
 
-    # 4. 选择部署模型
-    print("\n[4/6] 选择部署模型")
-    # 非交互式模式下检查必需参数
-    if non_interactive and not args.model:
-        print("错误: 非交互式模式需要 --model 参数")
-        return 1
-    model_config = select_model(args, gpu_count)
+    # 4. 获取模型配置
+    print("\n[4/5] 获取模型配置")
+    model_config = get_model_config(args.model)
     if not model_config:
-        print("部署取消。")
+        print(f"✗ 无法获取模型 '{args.model}' 的配置")
         return 1
 
-    print(f"\n已选择模型: {model_config['name']}")
+    print(f"  模型: {model_config['name']}")
     print(f"  HuggingFace ID: {model_config['hf_model_id']}")
+    print(f"  参数量: {model_config.get('params_billions', 'N/A')}B")
+    print(f"  推荐 TP: {model_config['recommended_tp']}")
 
-    # 5. 配置部署参数
-    print("\n[5/6] 配置部署参数")
-    deploy_config = configure_deployment(args, model_config, gpu_info, non_interactive=non_interactive)
+    # 5. 配置部署参数并执行
+    print("\n[5/5] 配置部署参数")
+    deploy_config = configure_deployment(args, model_config, gpu_info)
 
-    # 6. 确认并执行部署
+    # 打印部署摘要
     print("\n" + "=" * 60)
     print("部署配置摘要")
     print("=" * 60)
@@ -598,14 +387,7 @@ def interactive_deploy(args):
     print(f"  监控: {'是' if deploy_config.get('enable_monitoring') else '否'}")
     print("=" * 60)
 
-    if non_interactive:
-        print("\n--yes 模式，自动确认部署...")
-    else:
-        confirm = input("\n确认开始部署? [y/N]: ").strip().lower()
-        if confirm != 'y':
-            print("部署取消。")
-            return 1
-
+    # 执行部署
     success = execute_deployment(ssh_info, model_config, deploy_config)
 
     if success:
@@ -616,61 +398,91 @@ def interactive_deploy(args):
         return 1
 
 
+def list_models() -> int:
+    """列出可用模型"""
+    print("\n" + "=" * 60)
+    print("Trending 32B+ SGLang Models (from HuggingFace)")
+    print("=" * 60)
+    config = load_models_config()
+    models = config.get("models", [])
+    if not models:
+        print("\n无法获取模型列表")
+        return 1
+    for i, model in enumerate(models, 1):
+        print(f"\n  {i}. {model['name']}")
+        print(f"     HuggingFace: {model['hf_model_id']}")
+        print(f"     参数量: {model.get('params_billions', 'N/A')}B")
+        print(f"     推荐配置: {model['recommended_instance']} (TP={model['recommended_tp']})")
+    print()
+    return 0
+
+
 def main():
-    import argparse
+    parser = argparse.ArgumentParser(
+        description="通过 SSH 在 EC2 实例上部署 SGLang",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  # 部署模型
+  python deploy.py --host 1.2.3.4 --key_file ~/.ssh/key.pem --model Qwen/Qwen2.5-72B-Instruct
 
-    parser = argparse.ArgumentParser(description="通过 SSH 在 EC2 实例上部署 SGLang")
+  # 指定 TP 和端口
+  python deploy.py --host 1.2.3.4 --key_file ~/.ssh/key.pem --model Qwen/Qwen2.5-72B-Instruct --tp 8 --service_port 8080
 
-    # SSH 连接参数
-    parser.add_argument("--host", type=str, help="EC2 实例 IP 或域名")
-    parser.add_argument("--username", type=str, help="SSH 用户名")
-    parser.add_argument("--key-file", type=str, help="SSH 私钥文件路径")
-    parser.add_argument("--port", type=int, default=22, help="SSH 端口")
+  # 启用监控
+  python deploy.py --host 1.2.3.4 --key_file ~/.ssh/key.pem --model Qwen/Qwen2.5-72B-Instruct --enable_monitoring
 
-    # 资源类型
-    parser.add_argument("--resource-type", choices=["ec2", "hyperpod"], default="ec2",
+  # 列出可用模型
+  python deploy.py --trending_models
+"""
+    )
+
+    # 必需参数
+    parser.add_argument("--host", type=str, required=False, help="EC2 实例 IP 或域名 (必需)")
+    parser.add_argument("--key_file", type=str, required=False, help="SSH 私钥文件路径 (必需)")
+    parser.add_argument("--model", type=str, required=False, help="HuggingFace 模型 ID，如 Qwen/Qwen2.5-72B-Instruct (必需)")
+
+    # 可选参数
+    parser.add_argument("--username", type=str, default="ubuntu", help="SSH 用户名 (默认: ubuntu)")
+    parser.add_argument("--port", type=int, default=22, help="SSH 端口 (默认: 22)")
+    parser.add_argument("--resource_type", choices=["ec2", "hyperpod"], default="ec2",
                         help="计算资源类型 (默认: ec2)")
-
-    # 模型和部署参数
-    parser.add_argument("--model", type=str, help="模型 ID (如: Qwen/Qwen2.5-72B-Instruct)")
-    parser.add_argument("--service-port", type=int, help="SGLang 服务端口 (默认: 30000)")
-    parser.add_argument("--tp", type=int, help="Tensor Parallelism")
-    parser.add_argument("--hf-token", type=str, help="HuggingFace Token")
+    parser.add_argument("--service_port", type=int, help="SGLang 服务端口 (默认: 30000)")
+    parser.add_argument("--tp", type=int, help="Tensor Parallelism (默认: 自动根据 GPU 数量)")
+    parser.add_argument("--hf_token", type=str, help="HuggingFace Token (部分模型需要)")
 
     # 监控选项
     monitoring_group = parser.add_mutually_exclusive_group()
-    monitoring_group.add_argument("--enable-monitoring", action="store_true", dest="enable_monitoring",
+    monitoring_group.add_argument("--enable_monitoring", action="store_true", dest="enable_monitoring",
                                   help="安装监控组件 (Prometheus + Grafana)")
-    monitoring_group.add_argument("--no-monitoring", action="store_false", dest="enable_monitoring",
-                                  help="不安装监控组件")
+    monitoring_group.add_argument("--no_monitoring", action="store_false", dest="enable_monitoring",
+                                  help="不安装监控组件 (默认)")
     parser.set_defaults(enable_monitoring=None)
 
-    # 非交互式模式
-    parser.add_argument("--yes", "-y", action="store_true",
-                        help="跳过所有确认提示 (非交互式模式)")
-
-    parser.add_argument("--list-models", action="store_true", help="列出可用模型")
+    # 辅助命令
+    parser.add_argument("--trending_models", action="store_true", help="列出可用的 trending 模型")
 
     args = parser.parse_args()
 
-    if args.list_models:
-        print("\n" + "=" * 60)
-        print("Trending 32B+ SGLang Models (from HuggingFace)")
-        print("=" * 60)
-        config = load_models_config()
-        models = config.get("models", [])
-        if not models:
-            print("\n无法获取模型列表")
-            return 1
-        for i, model in enumerate(models, 1):
-            print(f"\n  {i}. {model['name']}")
-            print(f"     HuggingFace: {model['hf_model_id']}")
-            print(f"     参数量: {model.get('params_billions', 'N/A')}B")
-            print(f"     推荐配置: {model['recommended_instance']} (TP={model['recommended_tp']})")
-        print()
-        return 0
+    # 列出模型
+    if args.trending_models:
+        return list_models()
 
-    return interactive_deploy(args)
+    # 检查必需参数
+    missing = []
+    if not args.host:
+        missing.append("--host")
+    if not args.key_file:
+        missing.append("--key-file")
+    if not args.model:
+        missing.append("--model")
+
+    if missing:
+        print(f"错误: 缺少必需参数: {', '.join(missing)}")
+        print("\n使用 --help 查看帮助")
+        return 1
+
+    return deploy(args)
 
 
 if __name__ == "__main__":

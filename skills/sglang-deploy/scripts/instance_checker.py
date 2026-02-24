@@ -330,7 +330,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Check EC2 instance for SGLang deployment")
     parser.add_argument("--host", required=True, help="Remote host address")
     parser.add_argument("--username", default="ec2-user", help="SSH username")
-    parser.add_argument("--key-file", required=True, help="SSH private key file")
+    parser.add_argument("--key_file", required=True, help="SSH private key file")
     parser.add_argument("--port", type=int, default=22, help="SSH port")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
 
