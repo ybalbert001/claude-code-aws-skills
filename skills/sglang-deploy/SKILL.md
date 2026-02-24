@@ -85,7 +85,7 @@ python cleanup.py --host <IP> --username ec2-user --key-file ~/.ssh/my-key.pem
     │      └─ Python 环境检测
     │
     ├─→ 4. 选择部署模型
-    │      └─ 从 models.json 列表选择
+    │      └─ 从 HuggingFace API 获取 trending 32B+ 模型
     │
     ├─→ 5. 配置参数
     │      ├─ 端口 (默认 30000)
@@ -124,20 +124,14 @@ curl http://<IP>:30000/v1/chat/completions \
   }'
 ```
 
-## 模型配置
+## 动态模型获取
 
-编辑 `references/models.json` 添加/修改支持的模型:
+模型列表从 HuggingFace API 实时获取:
+- **过滤条件**: 支持 SGLang (`apps=sglang`)、32B+ 参数量
+- **排序方式**: 按 trending score 排序
+- **自定义模型**: 支持输入任意 HuggingFace 模型 ID
 
-```json
-{
-  "id": "model-short-name",
-  "name": "Display Name",
-  "hf_model_id": "org/model-name",
-  "min_gpu_memory_gb": 16,
-  "recommended_instance": "g5.xlarge",
-  "recommended_tp": 1
-}
-```
+GPU 需求根据模型参数量自动估算。
 
 ## 实例类型选择
 
@@ -194,7 +188,6 @@ pkill -f "sglang.launch_server"
 
 - **SGLang 官方文档**: https://docs.sglang.io/
 - **安装和参数参考**: `references/sglang-docs.md`
-- **模型配置**: `references/models.json`
 - **实例类型说明**: `references/instance-types.md`
 
 ## 未来扩展 (Hyperpod)
