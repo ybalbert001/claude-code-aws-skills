@@ -12,26 +12,26 @@ description: 在预先存在的 EC2 实例上部署 SGLang LLM 推理服务器�
 ```
 /deploy-sglang
     │
-    ├─→ 1. 选择计算资源类型
+    ├─→ 1. 选择部署模型
+    │      └─ 从 HuggingFace API 获取 trending 32B+ 模型，或输入自定义模型 ID
+    │
+    ├─→ 2. 选择计算资源类型
     │      ├─ EC2 实例 (当前支持)
     │      └─ Hyperpod 集群 (规划中)
     │
-    ├─→ 2. 获取 SSH 连接信息
+    ├─→ 3. 获取 SSH 连接信息
     │      ├─ 主机地址 (IP 或域名)
     │      ├─ SSH 用户名
     │      ├─ SSH 密钥文件
     │      └─ SSH 端口
     │
-    ├─→ 3. 检测实例可用性
+    ├─→ 4. 检测实例可用性
     │      ├─ SSH 连接测试
     │      ├─ GPU 配置检测 (nvidia-smi)
     │      ├─ 磁盘空间检测
     │      └─ Python 环境检测
     │
-    ├─→ 4. 选择部署模型
-    │      └─ 从 HuggingFace API 获取 trending 32B+ 模型
-    │
-    ├─→ 5. 配置参数
+    ├─→ 5. 交互确认模型部署参数
     │      ├─ 端口 (默认 30000)
     │      ├─ Tensor Parallelism
     │      ├─ 是否安装监控 [可选]
@@ -48,6 +48,16 @@ description: 在预先存在的 EC2 实例上部署 SGLang LLM 推理服务器�
            ├─ [可选] 安装监控组件
            └─ 验证服务状态
 ```
+
+## 脚本说明
+
+| 脚本 | 用途 | 调用方式 |
+|------|------|----------|
+| `deploy.py` | 主部署脚本，执行完整部署流程 | `python scripts/deploy.py --host <IP> --key-file <KEY>` |
+| `cleanup.py` | 清理已部署的服务 | `python scripts/cleanup.py --host <IP> --key-file <KEY>` |
+| `instance_checker.py` | 检测实例配置 | `python scripts/instance_checker.py --host <IP> --key-file <KEY>` |
+
+内部模块（无需直接调用）：`hf_api.py`（HuggingFace API）、`ssh_utils.py`（SSH 工具）
 
 ## 部署后使用
 
