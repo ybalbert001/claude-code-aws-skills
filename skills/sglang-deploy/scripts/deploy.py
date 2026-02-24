@@ -128,8 +128,13 @@ def get_ssh_connection_info(args) -> Optional[dict]:
     return {"host": host, "user": username, "key": key_file, "port": port}
 
 
-def check_instance(ssh_info: dict) -> Optional[dict]:
-    """检测实例可用性"""
+def check_instance(ssh_info: dict, auto_continue: bool = False) -> Optional[dict]:
+    """检测实例可用性
+
+    Args:
+        ssh_info: SSH 连接信息
+        auto_continue: 如果为 True，遇到问题时自动继续（非交互式模式）
+    """
     print("\n" + "=" * 60)
     print("检测实例配置...")
     print("=" * 60)
@@ -140,8 +145,10 @@ def check_instance(ssh_info: dict) -> Optional[dict]:
         print_check_report(report)
 
         if not report["summary"]["ready_for_deployment"]:
-            print("\n⚠ 实例存在问题，是否继续？")
-            if input("继续部署? [y/N]: ").strip().lower() != 'y':
+            print("\n⚠ 实例存在问题")
+            if auto_continue:
+                print("  --yes 模式，继续部署...")
+            elif input("继续部署? [y/N]: ").strip().lower() != 'y':
                 return None
 
         return report
@@ -230,39 +237,59 @@ def select_model(args, gpu_count: int) -> Optional[dict]:
     return get_model_config(hf_id if "/" in hf_id else selected["id"], models)
 
 
-def configure_deployment(args, model_config: dict, gpu_info: dict) -> dict:
-    """配置部署参数"""
+def configure_deployment(args, model_config: dict, gpu_info: dict, non_interactive: bool = False) -> dict:
+    """配置部署参数
+
+    Args:
+        args: 命令行参数
+        model_config: 模型配置
+        gpu_info: GPU 信息
+        non_interactive: 如果为 True，使用默认值而不是交互式输入
+    """
     print("\n" + "=" * 60)
     print("配置部署参数")
     print("=" * 60)
 
     config = {}
+    gpu_count = gpu_info.get("count", 1)
+    recommended_tp = model_config.get("recommended_tp", 1)
+    default_tp = min(recommended_tp, gpu_count)
 
+    # 服务端口
     if args.service_port:
         config["port"] = args.service_port
+    elif non_interactive:
+        config["port"] = 30000
+        print(f"  端口: 30000 (默认)")
     else:
         port_str = input(f"服务端口 [默认: 30000]: ").strip()
         config["port"] = int(port_str) if port_str else 30000
 
-    gpu_count = gpu_info.get("count", 1)
-    recommended_tp = model_config.get("recommended_tp", 1)
-
+    # Tensor Parallelism
     if args.tp:
         config["tp"] = args.tp
+    elif non_interactive:
+        config["tp"] = default_tp
+        print(f"  TP: {default_tp} (自动)")
     else:
         print(f"\n检测到 {gpu_count} 个 GPU，模型推荐 TP={recommended_tp}")
-        tp_str = input(f"Tensor Parallelism [默认: {min(recommended_tp, gpu_count)}]: ").strip()
-        config["tp"] = int(tp_str) if tp_str else min(recommended_tp, gpu_count)
+        tp_str = input(f"Tensor Parallelism [默认: {default_tp}]: ").strip()
+        config["tp"] = int(tp_str) if tp_str else default_tp
 
+    # 监控组件
     if args.enable_monitoring is not None:
         config["enable_monitoring"] = args.enable_monitoring
+    elif non_interactive:
+        config["enable_monitoring"] = False
+        print("  监控: 否 (默认)")
     else:
         monitor = input("\n是否安装监控组件? [y/N]: ").strip().lower()
         config["enable_monitoring"] = monitor == 'y'
 
+    # HuggingFace Token
     if args.hf_token:
         config["hf_token"] = args.hf_token
-    else:
+    elif not non_interactive:
         needs_token = "llama" in model_config["hf_model_id"].lower()
         if needs_token:
             print("\n该模型可能需要 HuggingFace Token")
@@ -479,28 +506,50 @@ def print_deployment_summary(ssh_info: dict, model_config: dict, deploy_config: 
 
 
 def interactive_deploy(args):
-    """交互式部署流程"""
+    """交互式/非交互式部署流程
+
+    当提供 --yes 参数且所有必需参数都已提供时，将以非交互式模式运行。
+    """
     print("=" * 60)
     print("SGLang AWS Deployment - SSH 远程部署模式")
     print("=" * 60)
 
+    # 检查是否为非交互式模式
+    non_interactive = getattr(args, 'yes', False)
+
     # 1. 选择计算资源类型
     print("\n[1/6] 选择计算资源类型")
-    resource_types = [
-        {"id": "ec2", "name": "EC2 实例", "extra": "(当前支持)"},
-        {"id": "hyperpod", "name": "Hyperpod 集群", "extra": "(即将支持)"}
-    ]
-    selected = select_from_list(resource_types, "请选择计算资源类型:", "name", "id")
-    if not selected:
-        print("部署取消。")
-        return 1
+    if args.resource_type:
+        # 使用命令行参数
+        if args.resource_type == "hyperpod":
+            print("\n⚠ Hyperpod 集群支持即将推出，请先使用 EC2 实例。")
+            return 1
+        print(f"  使用: {args.resource_type}")
+    else:
+        # 交互式选择
+        resource_types = [
+            {"id": "ec2", "name": "EC2 实例", "extra": "(当前支持)"},
+            {"id": "hyperpod", "name": "Hyperpod 集群", "extra": "(即将支持)"}
+        ]
+        selected = select_from_list(resource_types, "请选择计算资源类型:", "name", "id")
+        if not selected:
+            print("部署取消。")
+            return 1
 
-    if selected["id"] == "hyperpod":
-        print("\n⚠ Hyperpod 集群支持即将推出，请先使用 EC2 实例。")
-        return 1
+        if selected["id"] == "hyperpod":
+            print("\n⚠ Hyperpod 集群支持即将推出，请先使用 EC2 实例。")
+            return 1
 
     # 2. 获取 SSH 连接信息
     print("\n[2/6] 获取 SSH 连接信息")
+    # 非交互式模式下检查必需参数
+    if non_interactive:
+        if not args.host:
+            print("错误: 非交互式模式需要 --host 参数")
+            return 1
+        if not args.key_file:
+            print("错误: 非交互式模式需要 --key-file 参数")
+            return 1
     ssh_info = get_ssh_connection_info(args)
     if not ssh_info:
         print("部署取消。")
@@ -508,7 +557,7 @@ def interactive_deploy(args):
 
     # 3. 检测实例可用性
     print("\n[3/6] 检测实例可用性")
-    report = check_instance(ssh_info)
+    report = check_instance(ssh_info, auto_continue=non_interactive)
     if not report:
         print("部署取消。")
         return 1
@@ -522,6 +571,10 @@ def interactive_deploy(args):
 
     # 4. 选择部署模型
     print("\n[4/6] 选择部署模型")
+    # 非交互式模式下检查必需参数
+    if non_interactive and not args.model:
+        print("错误: 非交互式模式需要 --model 参数")
+        return 1
     model_config = select_model(args, gpu_count)
     if not model_config:
         print("部署取消。")
@@ -532,7 +585,7 @@ def interactive_deploy(args):
 
     # 5. 配置部署参数
     print("\n[5/6] 配置部署参数")
-    deploy_config = configure_deployment(args, model_config, gpu_info)
+    deploy_config = configure_deployment(args, model_config, gpu_info, non_interactive=non_interactive)
 
     # 6. 确认并执行部署
     print("\n" + "=" * 60)
@@ -542,12 +595,16 @@ def interactive_deploy(args):
     print(f"  模型: {model_config['hf_model_id']}")
     print(f"  端口: {deploy_config['port']}")
     print(f"  TP: {deploy_config['tp']}")
+    print(f"  监控: {'是' if deploy_config.get('enable_monitoring') else '否'}")
     print("=" * 60)
 
-    confirm = input("\n确认开始部署? [y/N]: ").strip().lower()
-    if confirm != 'y':
-        print("部署取消。")
-        return 1
+    if non_interactive:
+        print("\n--yes 模式，自动确认部署...")
+    else:
+        confirm = input("\n确认开始部署? [y/N]: ").strip().lower()
+        if confirm != 'y':
+            print("部署取消。")
+            return 1
 
     success = execute_deployment(ssh_info, model_config, deploy_config)
 
@@ -564,17 +621,33 @@ def main():
 
     parser = argparse.ArgumentParser(description="通过 SSH 在 EC2 实例上部署 SGLang")
 
+    # SSH 连接参数
     parser.add_argument("--host", type=str, help="EC2 实例 IP 或域名")
     parser.add_argument("--username", type=str, help="SSH 用户名")
     parser.add_argument("--key-file", type=str, help="SSH 私钥文件路径")
     parser.add_argument("--port", type=int, default=22, help="SSH 端口")
 
-    parser.add_argument("--model", type=str, help="模型 ID")
-    parser.add_argument("--service-port", type=int, help="SGLang 服务端口")
+    # 资源类型
+    parser.add_argument("--resource-type", choices=["ec2", "hyperpod"], default="ec2",
+                        help="计算资源类型 (默认: ec2)")
+
+    # 模型和部署参数
+    parser.add_argument("--model", type=str, help="模型 ID (如: Qwen/Qwen2.5-72B-Instruct)")
+    parser.add_argument("--service-port", type=int, help="SGLang 服务端口 (默认: 30000)")
     parser.add_argument("--tp", type=int, help="Tensor Parallelism")
     parser.add_argument("--hf-token", type=str, help="HuggingFace Token")
-    parser.add_argument("--enable-monitoring", action="store_true", help="安装监控组件")
-    parser.add_argument("--no-monitoring", action="store_false", dest="enable_monitoring")
+
+    # 监控选项
+    monitoring_group = parser.add_mutually_exclusive_group()
+    monitoring_group.add_argument("--enable-monitoring", action="store_true", dest="enable_monitoring",
+                                  help="安装监控组件 (Prometheus + Grafana)")
+    monitoring_group.add_argument("--no-monitoring", action="store_false", dest="enable_monitoring",
+                                  help="不安装监控组件")
+    parser.set_defaults(enable_monitoring=None)
+
+    # 非交互式模式
+    parser.add_argument("--yes", "-y", action="store_true",
+                        help="跳过所有确认提示 (非交互式模式)")
 
     parser.add_argument("--list-models", action="store_true", help="列出可用模型")
 

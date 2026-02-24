@@ -64,18 +64,30 @@ def cleanup_files(host: str, user: str, key: str, port: int) -> bool:
 
 
 def interactive_cleanup(args):
-    """交互式清理流程"""
+    """交互式/非交互式清理流程
+
+    当提供 --force 参数时，将以非交互式模式运行。
+    """
     print("=" * 60)
     print("SGLang 清理工具")
     print("=" * 60)
 
+    non_interactive = args.force
+
+    # 检查必需参数
     if not args.host:
+        if non_interactive:
+            print("错误: 非交互式模式需要 --host 参数")
+            return 1
         args.host = input("\n请输入 EC2 实例 IP 或域名: ").strip()
         if not args.host:
             print("错误: 必须提供主机地址")
             return 1
 
     if not args.key_file:
+        if non_interactive:
+            print("错误: 非交互式模式需要 --key-file 参数")
+            return 1
         args.key_file = input("SSH 私钥文件路径: ").strip()
         if not args.key_file:
             print("错误: 必须提供 SSH 私钥文件")
@@ -87,7 +99,9 @@ def interactive_cleanup(args):
     print(f"\n目标实例: {args.host}")
     print(f"用户名: {user}")
 
-    if not args.force:
+    if non_interactive:
+        print("\n--force 模式，自动确认清理...")
+    else:
         confirm = input("\n确认清理? 这将停止 SGLang 服务并删除配置 [y/N]: ").strip().lower()
         if confirm != 'y':
             print("清理取消。")
