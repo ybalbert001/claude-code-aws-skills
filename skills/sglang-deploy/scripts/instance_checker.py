@@ -11,37 +11,29 @@ Instance Checker - 通过 SSH 检测 EC2 实例的可用性和配置
 
 import json
 import re
-from typing import Optional
 
-from ssh_executor import SSHExecutor
+from ssh_utils import ssh_run, ssh_test
 
 
 class InstanceChecker:
     """通过 SSH 检测 EC2 实例的可用性和配置"""
 
-    def __init__(self, executor: SSHExecutor):
-        """
-        初始化实例检测器
+    def __init__(self, host: str, user: str, key_file: str, port: int = 22):
+        self.host = host
+        self.user = user
+        self.key_file = key_file
+        self.port = port
 
-        Args:
-            executor: SSH 执行器实例
-        """
-        self.executor = executor
+    def _run(self, cmd: str, timeout: int = 300) -> tuple[bool, str, str]:
+        """执行远程命令"""
+        return ssh_run(self.host, self.user, self.key_file, cmd, self.port, timeout)
+
+    def check_connection(self) -> tuple[bool, str]:
+        """检测 SSH 连接"""
+        return ssh_test(self.host, self.user, self.key_file, self.port)
 
     def check_gpu_availability(self) -> dict:
-        """
-        检测 GPU 配置 (nvidia-smi)
-
-        Returns:
-            {
-                "available": bool,
-                "count": int,
-                "gpus": [{"index": int, "name": str, "memory_total_mb": int, "memory_free_mb": int}],
-                "driver_version": str,
-                "cuda_version": str,
-                "error": str (如果检测失败)
-            }
-        """
+        """检测 GPU 配置"""
         result = {
             "available": False,
             "count": 0,
@@ -51,21 +43,18 @@ class InstanceChecker:
             "error": ""
         }
 
-        # 检查 nvidia-smi 是否存在
-        success, stdout, stderr = self.executor.execute("which nvidia-smi")
+        success, stdout, stderr = self._run("which nvidia-smi")
         if not success:
             result["error"] = "nvidia-smi not found. Is NVIDIA driver installed?"
             return result
 
-        # 获取 GPU 信息 (JSON 格式)
         cmd = "nvidia-smi --query-gpu=index,name,memory.total,memory.free --format=csv,noheader,nounits"
-        success, stdout, stderr = self.executor.execute(cmd)
+        success, stdout, stderr = self._run(cmd)
 
         if not success:
             result["error"] = f"nvidia-smi failed: {stderr}"
             return result
 
-        # 解析 GPU 信息
         gpus = []
         for line in stdout.strip().split("\n"):
             if line.strip():
@@ -82,20 +71,17 @@ class InstanceChecker:
         result["count"] = len(gpus)
         result["gpus"] = gpus
 
-        # 获取驱动和 CUDA 版本
-        success, stdout, stderr = self.executor.execute("nvidia-smi --query-gpu=driver_version --format=csv,noheader")
+        success, stdout, _ = self._run("nvidia-smi --query-gpu=driver_version --format=csv,noheader")
         if success and stdout.strip():
             result["driver_version"] = stdout.strip().split("\n")[0]
 
-        success, stdout, stderr = self.executor.execute("nvidia-smi | grep 'CUDA Version' | awk '{print $9}'")
+        success, stdout, _ = self._run("nvidia-smi | grep 'CUDA Version' | awk '{print $9}'")
         if success and stdout.strip():
             result["cuda_version"] = stdout.strip()
 
-        # 检查 CUDA Toolkit (nvcc)
-        success, stdout, stderr = self.executor.execute("nvcc --version 2>/dev/null | grep release || /usr/local/cuda/bin/nvcc --version 2>/dev/null | grep release")
+        success, stdout, _ = self._run("nvcc --version 2>/dev/null | grep release || /usr/local/cuda/bin/nvcc --version 2>/dev/null | grep release")
         if success and stdout.strip():
             result["cuda_toolkit_installed"] = True
-            # 提取版本号，如 "release 12.8"
             match = re.search(r'release (\d+\.\d+)', stdout)
             if match:
                 result["cuda_toolkit_version"] = match.group(1)
@@ -106,22 +92,7 @@ class InstanceChecker:
         return result
 
     def check_disk_space(self, path: str = "/") -> dict:
-        """
-        检测磁盘空间
-
-        Args:
-            path: 要检测的路径 (默认根目录)
-
-        Returns:
-            {
-                "path": str,
-                "total_gb": float,
-                "used_gb": float,
-                "available_gb": float,
-                "use_percent": float,
-                "sufficient": bool (是否足够部署模型，建议 > 100GB)
-            }
-        """
+        """检测磁盘空间"""
         result = {
             "path": path,
             "total_gb": 0,
@@ -131,12 +102,10 @@ class InstanceChecker:
             "sufficient": False
         }
 
-        # 使用 df 命令获取磁盘信息
-        success, stdout, stderr = self.executor.execute(f"df -BG {path} | tail -1")
+        success, stdout, _ = self._run(f"df -BG {path} | tail -1")
         if not success:
             return result
 
-        # 解析输出: Filesystem 1G-blocks Used Available Use% Mounted
         parts = stdout.split()
         if len(parts) >= 5:
             try:
@@ -144,28 +113,14 @@ class InstanceChecker:
                 result["used_gb"] = float(parts[2].rstrip('G'))
                 result["available_gb"] = float(parts[3].rstrip('G'))
                 result["use_percent"] = float(parts[4].rstrip('%'))
-                result["sufficient"] = result["available_gb"] >= 100  # 建议至少 100GB
+                result["sufficient"] = result["available_gb"] >= 100
             except (ValueError, IndexError):
                 pass
 
         return result
 
     def check_python_env(self) -> dict:
-        """
-        检测 Python 环境
-
-        Returns:
-            {
-                "python_available": bool,
-                "python_version": str,
-                "python_path": str,
-                "pip_available": bool,
-                "pip_version": str,
-                "uv_available": bool,
-                "uv_version": str,
-                "conda_available": bool
-            }
-        """
+        """检测 Python 环境"""
         result = {
             "python_available": False,
             "python_version": "",
@@ -177,55 +132,37 @@ class InstanceChecker:
             "conda_available": False
         }
 
-        # 检查 Python
         for python_cmd in ["python3", "python"]:
-            success, stdout, stderr = self.executor.execute(f"which {python_cmd}")
+            success, stdout, _ = self._run(f"which {python_cmd}")
             if success and stdout.strip():
                 result["python_path"] = stdout.strip()
-                success, stdout, stderr = self.executor.execute(f"{python_cmd} --version")
+                success, stdout, _ = self._run(f"{python_cmd} --version")
                 if success:
                     result["python_available"] = True
                     result["python_version"] = stdout.strip().replace("Python ", "")
                 break
 
-        # 检查 pip
         for pip_cmd in ["pip3", "pip"]:
-            success, stdout, stderr = self.executor.execute(f"{pip_cmd} --version")
+            success, stdout, _ = self._run(f"{pip_cmd} --version")
             if success and stdout.strip():
                 result["pip_available"] = True
-                # pip 21.0.1 from /usr/lib/python3/dist-packages/pip (python 3.8)
                 match = re.search(r'pip (\d+\.\d+(\.\d+)?)', stdout)
                 if match:
                     result["pip_version"] = match.group(1)
                 break
 
-        # 检查 uv
-        success, stdout, stderr = self.executor.execute("uv --version")
+        success, stdout, _ = self._run("uv --version")
         if success and stdout.strip():
             result["uv_available"] = True
             result["uv_version"] = stdout.strip().replace("uv ", "")
 
-        # 检查 conda
-        success, stdout, stderr = self.executor.execute("which conda")
+        success, stdout, _ = self._run("which conda")
         result["conda_available"] = success and bool(stdout.strip())
 
         return result
 
     def check_network(self, test_url: str = "https://huggingface.co") -> dict:
-        """
-        检测网络连通性
-
-        Args:
-            test_url: 测试 URL
-
-        Returns:
-            {
-                "internet_available": bool,
-                "huggingface_accessible": bool,
-                "test_url": str,
-                "latency_ms": float (如果可用)
-            }
-        """
+        """检测网络连通性"""
         result = {
             "internet_available": False,
             "huggingface_accessible": False,
@@ -233,13 +170,11 @@ class InstanceChecker:
             "latency_ms": 0
         }
 
-        # 检查基本网络连通性
-        success, stdout, stderr = self.executor.execute("curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 https://www.google.com")
+        success, stdout, _ = self._run("curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 https://www.google.com")
         if success and stdout.strip() == "200":
             result["internet_available"] = True
 
-        # 检查 HuggingFace 连通性
-        success, stdout, stderr = self.executor.execute(f"curl -s -o /dev/null -w '%{{http_code}} %{{time_total}}' --connect-timeout 10 {test_url}")
+        success, stdout, _ = self._run(f"curl -s -o /dev/null -w '%{{http_code}} %{{time_total}}' --connect-timeout 10 {test_url}")
         if success:
             parts = stdout.strip().split()
             if len(parts) >= 1 and parts[0] in ["200", "301", "302"]:
@@ -253,61 +188,29 @@ class InstanceChecker:
         return result
 
     def check_sglang_installed(self) -> dict:
-        """
-        检测 SGLang 是否已安装
+        """检测 SGLang 是否已安装"""
+        result = {"installed": False, "version": "", "path": ""}
 
-        Returns:
-            {
-                "installed": bool,
-                "version": str,
-                "path": str
-            }
-        """
-        result = {
-            "installed": False,
-            "version": "",
-            "path": ""
-        }
-
-        # 检查 sglang 模块
-        success, stdout, stderr = self.executor.execute("python3 -c 'import sglang; print(sglang.__version__)'")
+        success, stdout, _ = self._run("python3 -c 'import sglang; print(sglang.__version__)'")
         if success and stdout.strip():
             result["installed"] = True
             result["version"] = stdout.strip()
 
-        # 获取安装路径
-        success, stdout, stderr = self.executor.execute("python3 -c 'import sglang; print(sglang.__file__)'")
+        success, stdout, _ = self._run("python3 -c 'import sglang; print(sglang.__file__)'")
         if success and stdout.strip():
             result["path"] = stdout.strip()
 
         return result
 
     def check_sglang_service(self) -> dict:
-        """
-        检测 SGLang 服务状态
+        """检测 SGLang 服务状态"""
+        result = {"service_exists": False, "service_running": False, "port": 0, "pid": 0}
 
-        Returns:
-            {
-                "service_exists": bool,
-                "service_running": bool,
-                "port": int (如果运行中),
-                "pid": int (如果运行中)
-            }
-        """
-        result = {
-            "service_exists": False,
-            "service_running": False,
-            "port": 0,
-            "pid": 0
-        }
-
-        # 检查启动脚本是否存在
-        success, stdout, stderr = self.executor.execute("test -f /opt/start_sglang.sh && echo 'exists'")
+        success, stdout, _ = self._run("test -f /opt/start_sglang.sh && echo 'exists'")
         if success and "exists" in stdout:
             result["service_exists"] = True
 
-        # 检查进程
-        success, stdout, stderr = self.executor.execute("pgrep -f 'sglang.launch_server'")
+        success, stdout, _ = self._run("pgrep -f 'sglang.launch_server'")
         if success and stdout.strip():
             result["service_running"] = True
             try:
@@ -315,8 +218,7 @@ class InstanceChecker:
             except ValueError:
                 pass
 
-        # 检查监听端口
-        success, stdout, stderr = self.executor.execute("ss -tlnp | grep -E ':30000|:8000' | head -1")
+        success, stdout, _ = self._run("ss -tlnp | grep -E ':30000|:8000' | head -1")
         if success and stdout.strip():
             match = re.search(r':(\d+)\s', stdout)
             if match:
@@ -325,26 +227,8 @@ class InstanceChecker:
         return result
 
     def run_all_checks(self) -> dict:
-        """
-        运行所有检测，返回综合报告
-
-        Returns:
-            {
-                "connection": {...},
-                "gpu": {...},
-                "disk": {...},
-                "python": {...},
-                "network": {...},
-                "sglang": {...},
-                "service": {...},
-                "summary": {
-                    "ready_for_deployment": bool,
-                    "issues": [str]
-                }
-            }
-        """
-        # 运行所有检测
-        connection_ok, connection_msg = self.executor.check_connection()
+        """运行所有检测"""
+        connection_ok, connection_msg = self.check_connection()
         gpu_info = self.check_gpu_availability()
         disk_info = self.check_disk_space()
         python_info = self.check_python_env()
@@ -352,7 +236,6 @@ class InstanceChecker:
         sglang_info = self.check_sglang_installed()
         service_info = self.check_sglang_service()
 
-        # 汇总问题
         issues = []
         if not connection_ok:
             issues.append(f"SSH connection failed: {connection_msg}")
@@ -382,10 +265,7 @@ class InstanceChecker:
             "network": network_info,
             "sglang": sglang_info,
             "service": service_info,
-            "summary": {
-                "ready_for_deployment": ready,
-                "issues": issues
-            }
+            "summary": {"ready_for_deployment": ready, "issues": issues}
         }
 
 
@@ -395,43 +275,36 @@ def print_check_report(report: dict):
     print("Instance Check Report")
     print("=" * 60)
 
-    # Connection
     conn = report["connection"]
     print(f"\n{'✓' if conn['ok'] else '✗'} SSH Connection: {conn['message']}")
 
-    # GPU
     gpu = report["gpu"]
     if gpu["available"]:
         print(f"\n✓ GPU: {gpu['count']} GPU(s) found")
         for g in gpu["gpus"]:
             print(f"    - GPU {g['index']}: {g['name']} ({g['memory_total_mb']}MB, {g['memory_free_mb']}MB free)")
         print(f"    Driver: {gpu['driver_version']}, CUDA: {gpu['cuda_version']}")
-        toolkit_status = f"✓ {gpu.get('cuda_toolkit_version', 'unknown')}" if gpu.get('cuda_toolkit_installed') else "✗ Not installed (will be auto-installed)"
+        toolkit_status = f"✓ {gpu.get('cuda_toolkit_version', 'unknown')}" if gpu.get('cuda_toolkit_installed') else "✗ Not installed"
         print(f"    CUDA Toolkit (nvcc): {toolkit_status}")
     else:
         print(f"\n✗ GPU: {gpu.get('error', 'Not available')}")
 
-    # Disk
     disk = report["disk"]
     print(f"\n{'✓' if disk['sufficient'] else '⚠'} Disk: {disk['available_gb']:.1f}GB available / {disk['total_gb']:.1f}GB total ({disk['use_percent']:.0f}% used)")
 
-    # Python
     py = report["python"]
     print(f"\n{'✓' if py['python_available'] else '✗'} Python: {py['python_version'] or 'Not found'}")
     print(f"    pip: {'✓ ' + py['pip_version'] if py['pip_available'] else '✗ Not found'}")
     print(f"    uv: {'✓ ' + py['uv_version'] if py['uv_available'] else '- Not installed'}")
 
-    # Network
     net = report["network"]
     print(f"\n{'✓' if net['internet_available'] else '✗'} Internet: {'Available' if net['internet_available'] else 'Not available'}")
     print(f"    HuggingFace: {'✓ Accessible' if net['huggingface_accessible'] else '✗ Not accessible'}" +
           (f" ({net['latency_ms']:.0f}ms)" if net['latency_ms'] else ""))
 
-    # SGLang
     sg = report["sglang"]
     print(f"\n{'✓' if sg['installed'] else '-'} SGLang: {sg['version'] if sg['installed'] else 'Not installed'}")
 
-    # Service
     svc = report["service"]
     if svc["service_running"]:
         print(f"✓ Service: Running (port {svc['port']}, pid {svc['pid']})")
@@ -440,7 +313,6 @@ def print_check_report(report: dict):
     else:
         print("- Service: Not configured")
 
-    # Summary
     summary = report["summary"]
     print("\n" + "=" * 60)
     if summary["ready_for_deployment"]:
@@ -464,11 +336,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    with SSHExecutor(args.host, args.username, args.key_file, args.port) as executor:
-        checker = InstanceChecker(executor)
-        report = checker.run_all_checks()
+    checker = InstanceChecker(args.host, args.username, args.key_file, args.port)
+    report = checker.run_all_checks()
 
-        if args.json:
-            print(json.dumps(report, indent=2))
-        else:
-            print_check_report(report)
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print_check_report(report)
