@@ -133,17 +133,6 @@ curl http://<IP>:30000/v1/chat/completions \
 
 GPU 需求根据模型参数量自动估算。
 
-## 实例类型选择
-
-| 模型大小 | 实例类型 | GPU 数量 | 显存 |
-|----------|----------|----------|------|
-| 7B | g5.xlarge | 1x A10G | 24GB |
-| 14B | g5.2xlarge | 1x A10G | 24GB |
-| 32B | g5.12xlarge | 4x A10G | 96GB |
-| 70B+ | p4d.24xlarge | 8x A100 | 320GB |
-
-详见 `references/instance-types.md`。
-
 ## 监控
 
 Grafana 仪表板 (`:3000`) 显示:
@@ -188,7 +177,6 @@ pkill -f "sglang.launch_server"
 
 - **SGLang 官方文档**: https://docs.sglang.io/
 - **安装和参数参考**: `references/sglang-docs.md`
-- **实例类型说明**: `references/instance-types.md`
 
 ## 未来扩展 (Hyperpod)
 
