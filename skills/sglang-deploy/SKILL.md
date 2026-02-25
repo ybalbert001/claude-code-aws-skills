@@ -64,6 +64,8 @@ command -v nvcc || sudo apt-get install -y cuda-toolkit-12-8 || sudo apt-get ins
 PREREQ_EOF
 ```
 
+需等待该步骤完成后，进入Step 2
+
 #### Step 2: 安装 SGLang (8-15分钟)
 
 ```bash
@@ -79,7 +81,7 @@ else
     sudo pip3 install --break-system-packages "sglang[all]"
 fi
 
-# 修复 PyTorch 2.9.x 与 CuDNN 兼容性 (安装 SGLang 后检测)
+# 修复 PyTorch 2.9.x 与 CuDNN 兼容性
 PYTORCH_VERSION=$(python3 -c "import torch; print(torch.__version__)" 2>/dev/null || echo "unknown")
 if [[ "$PYTORCH_VERSION" == 2.9.* ]]; then
     echo "Upgrading CuDNN for PyTorch 2.9.x compatibility..."
@@ -88,16 +90,17 @@ fi
 INSTALL_EOF
 ```
 
-每 10 秒检查进度：
+使用 `check_progress.py` 轮询，每 10 秒一次：
 ```bash
-python scripts/check_progress.py --host <IP> --key_file <KEY> --username <USER> --pretty
+python scripts/check_progress.py --host <IP> --key_file <KEY> --username <USER> --service_port <PORT> \
+    --log_path ~/sglang.log --pretty
 ```
 
 当返回 `"sglang_installed": true` 时进入下一步。
 
 #### Step 3: 启动服务 (15-30分钟) - 最耗时
 
-**重要**：不同模型可能需要不同的启动参数。启动前先查看模型页面获取推荐配置：
+**重要**：不同模型可能需要不同的启动参数。启动前必须先查看模型页面获取推荐配置：
 
 ```
 使用 WebFetch 访问: https://huggingface.co/<MODEL_ID>
@@ -139,7 +142,7 @@ START_EOF
 
 继续使用 `check_progress.py` 轮询，每 10 秒一次：
 ```bash
-python scripts/check_progress.py --host <IP> --key_file <KEY> --service_port <PORT> \
+python scripts/check_progress.py --host <IP> --key_file <KEY> --username <USER> --service_port <PORT> \
     --log_path ~/sglang-<model>.log --pretty
 ```
 
