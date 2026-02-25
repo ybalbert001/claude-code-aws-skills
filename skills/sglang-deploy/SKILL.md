@@ -5,135 +5,231 @@ description: 在预先存在的 EC2 实例上部署 SGLang LLM 推理服务器�
 
 # SGLang AWS 部署
 
-通过 SSH 在预先存在的 EC2 GPU 实例上部署 SGLang 推理服务器。
+通过 SSH 在 EC2 GPU 实例上部署 SGLang 推理服务器。
 
-## 部署流程
+## 部署工作流
 
-```
-deploy.py
-    │
-    ├─→ 1. 确定部署模型
-    │      ├─ 通过deploy.py脚本获取trending models供参考
-    │      └─ 手工填写huggingface model id
-    │
-    ├─→ 2. 通过AskUserQuestionTool采集信息
-    │      ├─ 选择计算资源类型, 选项为[EC2，hyperpod(目前不支持)]
-    │      ├─ EC2 IP
-    │      ├─ EC2 用户名, 选项为[ubuntu，ec2-user]
-    │      ├─ ssh 连接密钥路径
-    │      ├─ sglang service port 参数
-    │      └─ Tensor Parallelism 参数
-    │
-    ├─→ 3. 检测实例可用性
-    │      ├─ SSH 连接测试
-    │      ├─ GPU 配置检测 (nvidia-smi)
-    │      ├─ 磁盘空间检测
-    │      └─ Python 环境检测
-    │
-    ├─→ 4. 准备环境 & 部署
-    │      ├─ 安装 python3-pip, uv, CUDA Toolkit
-    │      ├─ 安装 sglang
-    │      ├─ 配置启动脚本
-    │      ├─ [可选] 安装监控组件
-    │      └─ 启动服务
-    │
-    └─→ 5. 输出部署摘要
+### 阶段 1：确定部署MODEL_ID
+
+获取热门模型参考：
+```bash
+python scripts/hf_api.py --trending
 ```
 
-## 脚本说明
+提示用户选择或者自己指定HuggingFace 模型 ID
 
-### deploy.py 命令行参数
+### 阶段 2：收集部署参数
 
-**必需参数:**
+使用 AskUserQuestion 收集：
 
-| 参数 | 说明 | 示例 |
-|------|------|------|
-| `--host` | EC2 实例 IP 或域名 | `--host 3.148.202.165` |
-| `--key_file` | SSH 私钥文件路径 | `--key_file ~/mykey.pem` |
-| `--model` | HuggingFace 模型 ID | `--model Qwen/Qwen2.5-72B-Instruct` |
+| 参数 | 必需 | 说明 | 默认值 |
+|------|------|------|--------|
+| EC2 IP | 是 | 实例公网 IP | - |
+| SSH 密钥路径 | 是 | 如 `~/.ssh/key.pem` | - |
+| SSH 用户名 | 否 | RHEL 用 `ec2-user` | `ubuntu` |
+| 服务端口 | 否 | SGLang API 端口 | `30000` |
+| HF Token | 否 | 受限模型需要 | - |
+| 启用监控 | 否 | Prometheus + Grafana | 否 |
 
-**可选参数:**
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--username` | SSH 用户名 | `ubuntu` |
-| `--port` | SSH 端口 | `22` |
-| `--service_port` | SGLang 服务端口 | `30000` |
-| `--tp` | Tensor Parallelism | 自动 (min(推荐值, GPU数)) |
-| `--hf_token` | HuggingFace Token | 无 |
-| `--enable_monitoring` | 安装监控组件 | 否 |
-| `--no_monitoring` | 不安装监控组件 | 默认 |
-| `--resource_type` | 计算资源类型 | `ec2` |
-| `--trending_models` | 列出热门模型 | - |
-
-### 调用示例
+### 阶段 3：检测实例
 
 ```bash
-# 基本部署
-python scripts/deploy.py \
-  --host 3.148.202.165 \
-  --key_file ~/yuanbo.pem \
-  --model Qwen/Qwen2.5-72B-Instruct
-
-# 指定 TP 和端口
-python scripts/deploy.py \
-  --host 3.148.202.165 \
-  --key_file ~/yuanbo.pem \
-  --model Qwen/Qwen2.5-72B-Instruct \
-  --tp 8 \
-  --service_port 8080
-
-# 启用监控
-python scripts/deploy.py \
-  --host 3.148.202.165 \
-  --key_file ~/yuanbo.pem \
-  --model Qwen/Qwen2.5-72B-Instruct \
-  --enable_monitoring
-
-# 列出热门模型
-python scripts/deploy.py --trending_models
+python scripts/instance_checker.py --host <IP> --key_file <KEY> --username <USER>
 ```
 
-### 其他脚本
+确认 GPU、磁盘空间、网络正常后继续。
 
-| 脚本 | 用途 | 调用方式 |
-|------|------|----------|
-| `cleanup.py` | 清理已部署的服务 | `python scripts/cleanup.py --host <IP> --key_file <KEY>` |
-| `instance_checker.py` | 检测实例配置 | `python scripts/instance_checker.py --host <IP> --key_file <KEY>` |
+### 阶段 4：执行部署
 
-内部模块（无需直接调用）：`hf_api.py`（HuggingFace API）、`ssh_utils.py`（SSH 工具）
+使用 Bash 工具 + `run_in_background: true` 异步执行以下 SSH 命令。
 
-## 部署后使用
-
-| 端口 | 服务 | URL |
-|------|------|-----|
-| 30000 | SGLang API | `http://<IP>:30000` |
-| 3000 | Grafana | `http://<IP>:3000` (可选) |
-| 9090 | Prometheus | `http://<IP>:9090` (可选) |
+#### Step 1: 安装依赖 (1-5分钟)
 
 ```bash
-curl http://<IP>:30000/v1/chat/completions \
+ssh -i <KEY> -o StrictHostKeyChecking=no <USER>@<IP> 'bash -s' << 'PREREQ_EOF'
+set -ex
+# 安装 pip
+command -v pip3 || sudo apt-get update && sudo apt-get install -y python3-pip
+
+# 安装 uv
+command -v uv || pip3 install --break-system-packages uv || pip3 install --user uv
+
+# 安装 CUDA Toolkit (如果没有 nvcc)
+command -v nvcc || sudo apt-get install -y cuda-toolkit-12-8 || sudo apt-get install -y cuda-toolkit
+PREREQ_EOF
+```
+
+#### Step 2: 安装 SGLang (8-15分钟)
+
+```bash
+ssh -i <KEY> -o StrictHostKeyChecking=no <USER>@<IP> 'bash -s' << 'INSTALL_EOF'
+set -ex
+export PATH="$HOME/.local/bin:$PATH"
+export HF_TOKEN="<HF_TOKEN>"  # 如果有
+
+# 使用 uv 安装 (更快)
+if command -v uv &> /dev/null; then
+    sudo $(which uv) pip install "sglang[all]" --system --break-system-packages
+else
+    sudo pip3 install --break-system-packages "sglang[all]"
+fi
+
+# 修复 PyTorch 2.9.x 与 CuDNN 兼容性 (安装 SGLang 后检测)
+PYTORCH_VERSION=$(python3 -c "import torch; print(torch.__version__)" 2>/dev/null || echo "unknown")
+if [[ "$PYTORCH_VERSION" == 2.9.* ]]; then
+    echo "Upgrading CuDNN for PyTorch 2.9.x compatibility..."
+    sudo pip3 install --break-system-packages nvidia-cudnn-cu12==9.16.0.29
+fi
+INSTALL_EOF
+```
+
+每 10 秒检查进度：
+```bash
+python scripts/check_progress.py --host <IP> --key_file <KEY> --username <USER> --pretty
+```
+
+当返回 `"sglang_installed": true` 时进入下一步。
+
+#### Step 3: 启动服务 (15-30分钟) - 最耗时
+
+**重要**：不同模型可能需要不同的启动参数。启动前先查看模型页面获取推荐配置：
+
+```
+使用 WebFetch 访问: https://huggingface.co/<MODEL_ID>
+提取: SGLang 启动命令、特殊参数要求 (如 --chat-template, --trust-remote-code 等)
+```
+
+常见的特殊参数：
+- `--trust-remote-code`: 部分模型需要（如 Qwen 系列）
+- `--chat-template`: 自定义对话模板
+- `--quantization`: 量化方式 (fp8, awq, gptq 等)
+- `--context-length`: 自定义上下文长度
+
+默认启动命令（根据模型页面信息调整）：
+
+```bash
+ssh -i <KEY> -o StrictHostKeyChecking=no <USER>@<IP> 'bash -s' << 'START_EOF'
+export HF_TOKEN="<HF_TOKEN>"  # 如果有
+pkill -f "sglang.launch_server" 2>/dev/null || true
+sleep 2
+
+nohup python3 -m sglang.launch_server \
+    --model-path <MODEL_ID> \
+    --host 0.0.0.0 \
+    --port <SERVICE_PORT> \
+    --tp <TP> \
+    --enable-metrics \
+    > /tmp/sglang.log 2>&1 &
+
+echo "Started with PID: $!"
+START_EOF
+```
+
+#### Step 4: 等待服务就绪
+
+继续使用 `check_progress.py` 轮询，每 10 秒一次：
+```bash
+python scripts/check_progress.py --host <IP> --key_file <KEY> --service_port <PORT> --pretty
+```
+
+- `"api_healthy": true` → 部署成功
+- `"next_action": "wait"` → 继续等待（模型加载中）
+- 超过 10 分钟仍未就绪 → 检查日志
+
+#### Step 5: 安装监控 (可选, 3-5分钟)
+
+仅当用户选择启用监控时执行：
+
+```bash
+ssh -i <KEY> -o StrictHostKeyChecking=no <USER>@<IP> 'bash -s' << 'MONITOR_EOF'
+set -ex
+# 安装 Docker
+command -v docker || (curl -fsSL https://get.docker.com | sh && systemctl enable docker)
+
+# 安装 docker-compose
+command -v docker-compose || (
+    curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
+        -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose
+)
+
+# 配置 Prometheus
+mkdir -p /opt/monitoring
+cat > /opt/monitoring/prometheus.yml << 'PROM'
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: 'sglang'
+    static_configs:
+      - targets: ['localhost:30000']
+PROM
+
+# 配置 docker-compose
+cat > /opt/monitoring/docker-compose.yml << 'COMPOSE'
+version: '3.8'
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    ports: ["9090:9090"]
+    volumes: ["./prometheus.yml:/etc/prometheus/prometheus.yml"]
+    network_mode: host
+  grafana:
+    image: grafana/grafana:latest
+    ports: ["3000:3000"]
+    environment: ["GF_SECURITY_ADMIN_PASSWORD=admin"]
+    network_mode: host
+COMPOSE
+
+cd /opt/monitoring && docker-compose up -d
+MONITOR_EOF
+```
+
+### 阶段 5：输出部署摘要
+
+部署成功后输出：
+```
+部署完成!
+==========
+SGLang API: http://<IP>:<PORT>
+模型: <MODEL_ID>
+TP: <TP>
+
+测试命令:
+curl http://<IP>:<PORT>/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "default", "messages": [{"role": "user", "content": "Hello!"}]}'
 ```
 
-## 监控 (可选)
+如启用监控，额外输出：
+```
+Grafana: http://<IP>:3000 (admin/admin)
+Prometheus: http://<IP>:9090
+```
 
-Grafana 仪表板 (`:3000`) 显示请求数、Token 吞吐量、TTFT、延迟、Cache 命中率。默认凭据: `admin/admin`
+## 脚本说明
+
+| 脚本 | 用途 |
+|------|------|
+| `scripts/check_progress.py` | 检查 SGLang 安装和服务状态 |
+| `scripts/instance_checker.py` | 检测实例配置 (GPU/磁盘/网络) |
+| `scripts/hf_api.py` | 获取模型信息和热门模型列表 |
+| `scripts/cleanup.py` | 清理已部署的服务 |
+| `scripts/ssh_utils.py` | SSH 工具函数 (内部使用) |
 
 ## 故障排除
 
+查看日志：
 ```bash
-# 查看日志
-tail -f /tmp/sglang.log
+ssh -i <KEY> <USER>@<IP> 'tail -100 /tmp/sglang.log'
+```
 
-# 停止服务
-pkill -f "sglang.launch_server"
+停止服务：
+```bash
+ssh -i <KEY> <USER>@<IP> 'pkill -f sglang.launch_server'
 ```
 
 | 问题 | 解决方案 |
 |------|----------|
-| SSH 连接失败 | 检查安全组是否开放 22 端口，密钥文件权限是否正确 |
-| GPU 未检测到 | 确认实例类型支持 GPU，NVIDIA 驱动已安装 |
-| 内存不足 | 使用更大实例或启用 tensor parallelism |
-| 服务启动失败 | 查看日志 `tail -f /tmp/sglang.log` |
+| SSH 连接失败 | 检查安全组 22 端口，密钥权限 |
+| GPU 未检测到 | 确认实例类型，NVIDIA 驱动 |
+| 内存不足 | 增加 TP 或使用更大实例 |
+| 服务启动超时 | 大模型加载慢，继续等待或检查日志 |
