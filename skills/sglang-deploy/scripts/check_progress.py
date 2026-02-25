@@ -57,9 +57,18 @@ def check_api_health(host: str, user: str, key_file: str, port: int, service_por
     return result
 
 
-def get_log_tail(host: str, user: str, key_file: str, port: int, lines: int = 10) -> str:
-    """获取最新日志"""
-    cmd = f"tail -{lines} /tmp/sglang.log 2>/dev/null"
+def get_log_tail(host: str, user: str, key_file: str, port: int, log_path: str, lines: int = 10) -> str:
+    """获取最新日志
+
+    Args:
+        host: 远程主机地址
+        user: SSH 用户名
+        key_file: SSH 私钥文件路径
+        port: SSH 端口
+        log_path: 日志文件路径 (如 ~/sglang-qwen3.5-397b.log)
+        lines: 获取的行数
+    """
+    cmd = f"tail -{lines} {log_path} 2>/dev/null"
     _, stdout, _ = ssh_run(host, user, key_file, cmd, port, timeout=10)
     return stdout.strip() if stdout else ""
 
@@ -75,6 +84,7 @@ def check_progress(args) -> dict:
             "http_code": None
         },
         "log_tail": None,
+        "log_path": args.log_path,
         "message": "",
         "next_action": None
     }
@@ -115,7 +125,7 @@ def check_progress(args) -> dict:
         output["next_action"] = "wait"
         # 获取日志查看加载进度
         output["log_tail"] = get_log_tail(
-            args.host, args.username, args.key_file, args.port, 5
+            args.host, args.username, args.key_file, args.port, args.log_path, 5
         )
     else:
         output["message"] = f"Service running but API returned {api_status['http_code']}"
@@ -158,6 +168,7 @@ next_action 可能的值:
     parser.add_argument("--username", default="ubuntu", help="SSH 用户名 (默认: ubuntu)")
     parser.add_argument("--port", type=int, default=22, help="SSH 端口 (默认: 22)")
     parser.add_argument("--service_port", type=int, default=30000, help="SGLang 服务端口 (默认: 30000)")
+    parser.add_argument("--log_path", default="~/sglang.log", help="SGLang 日志文件路径 (默认: ~/sglang.log)")
     parser.add_argument("--pretty", action="store_true", help="格式化输出 JSON")
 
     args = parser.parse_args()

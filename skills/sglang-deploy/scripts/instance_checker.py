@@ -15,6 +15,19 @@ import re
 from ssh_utils import ssh_run, ssh_test
 
 
+def get_log_filename(model_id: str) -> str:
+    """从模型ID生成日志文件名
+
+    Args:
+        model_id: HuggingFace 模型 ID (如 "Qwen/Qwen3.5-397B-A17B-FP8")
+
+    Returns:
+        str: 日志文件名 (如 "sglang-qwen3.5-397b-a17b-fp8.log")
+    """
+    model_name = model_id.split("/")[-1].lower()
+    return f"sglang-{model_name}.log"
+
+
 class InstanceChecker:
     """通过 SSH 检测 EC2 实例的可用性和配置"""
 
@@ -226,8 +239,68 @@ class InstanceChecker:
 
         return result
 
-    def run_all_checks(self) -> dict:
-        """运行所有检测"""
+    def check_model_cache(self, model_id: str = None) -> dict:
+        """检测 HuggingFace 模型缓存状态
+
+        Args:
+            model_id: 可选，HuggingFace 模型 ID (如 "Qwen/Qwen3.5-397B-A17B-FP8")
+
+        Returns:
+            dict: 包含缓存目录、大小、模型是否已缓存等信息
+        """
+        result = {
+            "cache_dir": "~/.cache/huggingface/hub",
+            "cache_exists": False,
+            "total_size_gb": 0,
+            "model_id": model_id,
+            "model_cached": False,
+            "model_size_gb": 0,
+            "incomplete_files": 0,
+            "log_file": f"~/{get_log_filename(model_id)}" if model_id else "~/sglang.log"
+        }
+
+        # 检查缓存目录是否存在及总大小
+        cmd = "du -sb ~/.cache/huggingface/hub 2>/dev/null | cut -f1"
+        success, stdout, _ = self._run(cmd)
+        if success and stdout.strip():
+            try:
+                result["cache_exists"] = True
+                result["total_size_gb"] = round(int(stdout.strip()) / 1e9, 2)
+            except ValueError:
+                pass
+
+        # 如果指定了 model_id，检查该模型
+        if model_id:
+            model_dir = model_id.replace("/", "--")
+            model_path = f"~/.cache/huggingface/hub/models--{model_dir}"
+
+            # 检查模型目录大小
+            cmd = f"du -sb {model_path} 2>/dev/null | cut -f1"
+            success, stdout, _ = self._run(cmd)
+            if success and stdout.strip():
+                try:
+                    result["model_cached"] = True
+                    result["model_size_gb"] = round(int(stdout.strip()) / 1e9, 2)
+                except ValueError:
+                    pass
+
+            # 检查 .incomplete 文件数量
+            cmd = f"find {model_path} -name '*.incomplete' 2>/dev/null | wc -l"
+            success, stdout, _ = self._run(cmd)
+            if success and stdout.strip():
+                try:
+                    result["incomplete_files"] = int(stdout.strip())
+                except ValueError:
+                    pass
+
+        return result
+
+    def run_all_checks(self, model_id: str = None) -> dict:
+        """运行所有检测
+
+        Args:
+            model_id: 可选，HuggingFace 模型 ID，用于检查模型缓存
+        """
         connection_ok, connection_msg = self.check_connection()
         gpu_info = self.check_gpu_availability()
         disk_info = self.check_disk_space()
@@ -235,6 +308,7 @@ class InstanceChecker:
         network_info = self.check_network()
         sglang_info = self.check_sglang_installed()
         service_info = self.check_sglang_service()
+        model_cache_info = self.check_model_cache(model_id) if model_id else None
 
         issues = []
         if not connection_ok:
@@ -257,7 +331,7 @@ class InstanceChecker:
             python_info["pip_available"]
         )
 
-        return {
+        result = {
             "connection": {"ok": connection_ok, "message": connection_msg},
             "gpu": gpu_info,
             "disk": disk_info,
@@ -267,6 +341,11 @@ class InstanceChecker:
             "service": service_info,
             "summary": {"ready_for_deployment": ready, "issues": issues}
         }
+
+        if model_cache_info:
+            result["model_cache"] = model_cache_info
+
+        return result
 
 
 def print_check_report(report: dict):
@@ -313,6 +392,18 @@ def print_check_report(report: dict):
     else:
         print("- Service: Not configured")
 
+    # 模型缓存信息
+    if "model_cache" in report:
+        mc = report["model_cache"]
+        print(f"\n{'✓' if mc['model_cached'] else '-'} Model Cache:")
+        print(f"    Model: {mc['model_id'] or 'Not specified'}")
+        if mc['model_cached']:
+            incomplete = f" ({mc['incomplete_files']} incomplete)" if mc['incomplete_files'] > 0 else ""
+            print(f"    Size: {mc['model_size_gb']:.1f}GB{incomplete}")
+        else:
+            print("    Status: Not cached (will download on first run)")
+        print(f"    Log file: {mc['log_file']}")
+
     summary = report["summary"]
     print("\n" + "=" * 60)
     if summary["ready_for_deployment"]:
@@ -332,12 +423,13 @@ if __name__ == "__main__":
     parser.add_argument("--username", default="ec2-user", help="SSH username")
     parser.add_argument("--key_file", required=True, help="SSH private key file")
     parser.add_argument("--port", type=int, default=22, help="SSH port")
+    parser.add_argument("--model_id", help="HuggingFace model ID (e.g., Qwen/Qwen3.5-397B-A17B-FP8)")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     args = parser.parse_args()
 
     checker = InstanceChecker(args.host, args.username, args.key_file, args.port)
-    report = checker.run_all_checks()
+    report = checker.run_all_checks(model_id=args.model_id)
 
     if args.json:
         print(json.dumps(report, indent=2))

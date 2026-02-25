@@ -34,8 +34,13 @@ python scripts/hf_api.py --trending
 ### 阶段 3：检测实例
 
 ```bash
-python scripts/instance_checker.py --host <IP> --key_file <KEY> --username <USER>
+python scripts/instance_checker.py --host <IP> --key_file <KEY> --username <USER> --model_id <MODEL_ID>
 ```
+
+输出包含：
+- GPU/磁盘/网络状态
+- 模型缓存状态（是否已下载、大小）
+- 推荐的日志文件路径
 
 确认 GPU、磁盘空间、网络正常后继续。
 
@@ -113,15 +118,20 @@ export HF_TOKEN="<HF_TOKEN>"  # 如果有
 pkill -f "sglang.launch_server" 2>/dev/null || true
 sleep 2
 
+# 生成日志文件名 (如 sglang-qwen3.5-397b-a17b-fp8.log)
+MODEL_ID="<MODEL_ID>"
+LOG_FILE="$HOME/sglang-$(echo "$MODEL_ID" | awk -F'/' '{print tolower($NF)}').log"
+
 nohup python3 -m sglang.launch_server \
-    --model-path <MODEL_ID> \
+    --model-path $MODEL_ID \
     --host 0.0.0.0 \
     --port <SERVICE_PORT> \
     --tp <TP> \
     --enable-metrics \
-    > /tmp/sglang.log 2>&1 &
+    > "$LOG_FILE" 2>&1 &
 
 echo "Started with PID: $!"
+echo "Log file: $LOG_FILE"
 START_EOF
 ```
 
@@ -129,8 +139,11 @@ START_EOF
 
 继续使用 `check_progress.py` 轮询，每 10 秒一次：
 ```bash
-python scripts/check_progress.py --host <IP> --key_file <KEY> --service_port <PORT> --pretty
+python scripts/check_progress.py --host <IP> --key_file <KEY> --service_port <PORT> \
+    --log_path ~/sglang-<model>.log --pretty
 ```
+
+日志路径格式：`~/sglang-{model_name}.log`，如 `~/sglang-qwen3.5-397b-a17b-fp8.log`
 
 - `"api_healthy": true` → 部署成功
 - `"next_action": "wait"` → 继续等待（模型加载中）
@@ -217,9 +230,9 @@ Prometheus: http://<IP>:9090
 
 ## 故障排除
 
-查看日志：
+查看日志（日志路径格式：`~/sglang-{model_name}.log`）：
 ```bash
-ssh -i <KEY> <USER>@<IP> 'tail -100 /tmp/sglang.log'
+ssh -i <KEY> <USER>@<IP> 'tail -100 ~/sglang-<model>.log'
 ```
 
 停止服务：
