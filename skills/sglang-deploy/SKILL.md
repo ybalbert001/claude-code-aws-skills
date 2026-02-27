@@ -85,7 +85,7 @@ INSTALL_EOF
 
 #### Step 2: 启动服务 (15-30分钟) - 最耗时
 
-**重要**：不同模型可能需要不同的启动参数。启动前必须先查看模型页面获取推荐配置：
+**重要**：不同模型可能需要不同的启动参数。启动前必须先查看模型页面获取推荐配置, 如果用户要求安装监控，请务必添加--enable-metrics参数。
 
 ```
 使用 WebFetch 访问: https://huggingface.co/<MODEL_ID>
@@ -133,50 +133,54 @@ python scripts/check_progress.py --host <IP> --key_file <KEY> --username <USER> 
 
 #### Step 4: 安装监控 (可选, 3-5分钟)
 
-仅当用户选择启用监控时执行：
+仅当用户选择启用监控时执行。参考 [SGLang Production Metrics](https://docs.sglang.io/references/production_metrics.html)。
 
 ```bash
 ssh -i <KEY> -o StrictHostKeyChecking=no <USER>@<IP> 'bash -s' << 'MONITOR_EOF'
 set -ex
+
 # 安装 Docker
-command -v docker || (curl -fsSL https://get.docker.com | sh && systemctl enable docker)
+if ! command -v docker &> /dev/null; then
+    curl -fsSL https://get.docker.com | sh
+    sudo systemctl enable docker
+    sudo systemctl start docker
+    sudo usermod -aG docker $USER
+fi
 
-# 安装 docker-compose
-command -v docker-compose || (
-    curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
-        -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose
-)
+# 安装 docker-compose (v2 plugin 优先)
+if ! docker compose version &> /dev/null; then
+    sudo mkdir -p /usr/local/lib/docker/cli-plugins
+    sudo curl -SL "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
+        -o /usr/local/lib/docker/cli-plugins/docker-compose
+    sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+fi
 
-# 配置 Prometheus
-mkdir -p /opt/monitoring
-cat > /opt/monitoring/prometheus.yml << 'PROM'
-global:
-  scrape_interval: 15s
-scrape_configs:
-  - job_name: 'sglang'
-    static_configs:
-      - targets: ['localhost:30000']
-PROM
+# 从 GitHub 拉取官方监控配置
+MONITORING_DIR="$HOME/sglang-monitoring"
+if [ -d "$MONITORING_DIR" ]; then
+    cd "$MONITORING_DIR" && git pull
+else
+    git clone --depth 1 --filter=blob:none --sparse \
+        https://github.com/sgl-project/sglang.git "$MONITORING_DIR"
+    cd "$MONITORING_DIR"
+    git sparse-checkout set examples/monitoring
+fi
 
-# 配置 docker-compose
-cat > /opt/monitoring/docker-compose.yml << 'COMPOSE'
-version: '3.8'
-services:
-  prometheus:
-    image: prom/prometheus:latest
-    ports: ["9090:9090"]
-    volumes: ["./prometheus.yml:/etc/prometheus/prometheus.yml"]
-    network_mode: host
-  grafana:
-    image: grafana/grafana:latest
-    ports: ["3000:3000"]
-    environment: ["GF_SECURITY_ADMIN_PASSWORD=admin"]
-    network_mode: host
-COMPOSE
+# 进入监控目录
+cd "$MONITORING_DIR/examples/monitoring"
 
-cd /opt/monitoring && docker-compose up -d
+# 启动监控服务
+docker compose up -d
+
+echo "Monitoring started!"
+echo "Grafana: http://localhost:3000 (anonymous access enabled)"
+echo "Prometheus: http://localhost:9090"
 MONITOR_EOF
 ```
+
+**注意**：
+- 官方配置启用了 Grafana 匿名访问，无需密码
+- 预置的 SGLang Dashboard 会自动加载，包含 E2E Latency、TTFT、Cache Hit Rate、Throughput 等指标
 
 ### 阶段 5：输出部署摘要
 
@@ -196,7 +200,8 @@ curl http://<IP>:<PORT>/v1/chat/completions \
 
 如启用监控，额外输出：
 ```
-Grafana: http://<IP>:3000 (admin/admin)
+监控:
+Grafana: http://<IP>:3000 (匿名访问，SGLang Dashboard 已预置)
 Prometheus: http://<IP>:9090
 ```
 
