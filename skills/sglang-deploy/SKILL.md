@@ -55,6 +55,7 @@ python scripts/hf_api.py --trending
 | 参数 | 必需 | 说明 | 默认值 |
 |------|------|------|--------|
 | Instance Type | 是 | 如 `ml.g6.2xlarge` | - |
+| Region | 是 | AWS 部署区域 | 如 `us-east-1` |
 | FTP ARN | 否 | Flexible Training Plan 预留容量 ARN | - |
 
 ### 阶段 4：验证目标
@@ -98,7 +99,7 @@ python scripts/check_progress.py --host <IP> --key_file <KEY> --username <USER> 
 **SageMaker Endpoint：**
 
 ```bash
-python scripts/sagemaker_endpoint.py --action wait --endpoint-name <ENDPOINT_NAME>
+python scripts/sagemaker_endpoint.py --action wait --endpoint-name <ENDPOINT_NAME> --region <REGION>
 ```
 
 每 60 秒轮询，直到 `InService` 或 `Failed`。
@@ -136,10 +137,10 @@ Instance Type: <INSTANCE_TYPE>
 TP: <TP>
 
 测试命令:
-python scripts/sagemaker_endpoint.py --action test --endpoint-name <ENDPOINT_NAME>
+python scripts/sagemaker_endpoint.py --action test --endpoint-name <ENDPOINT_NAME> --region <REGION>
 
 清理命令:
-python scripts/sagemaker_endpoint.py --action delete --endpoint-name <ENDPOINT_NAME>
+python scripts/sagemaker_endpoint.py --action delete --endpoint-name <ENDPOINT_NAME> --region <REGION>
 ```
 
 ## 脚本说明

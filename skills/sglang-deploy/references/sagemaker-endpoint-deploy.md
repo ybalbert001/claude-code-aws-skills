@@ -13,8 +13,8 @@
 ```bash
 python scripts/sagemaker_endpoint.py --action upload-model \
     --model-id <MODEL_ID> \
-    --s3-bucket <S3_BUCKET> \
-    --hf-token <HF_TOKEN>  # 如果是 gated 模型
+    --region <REGION> \
+    --hf-token <HF_TOKEN>  # 可选，gated 模型需要
 ```
 
 该命令会：
@@ -29,6 +29,7 @@ python scripts/sagemaker_endpoint.py --action upload-model \
 python scripts/sagemaker_endpoint.py --action deploy \
     --model-id <MODEL_ID> \
     --instance-type <INSTANCE_TYPE> \
+    --region <REGION> \
     --tp <TP> \
     --capacity-reservation-arn <FTP_ARN>  # 可选，Flexible Training Plan 预留容量
 ```
@@ -65,7 +66,8 @@ python scripts/sagemaker_endpoint.py --action deploy \
 
 ```bash
 python scripts/sagemaker_endpoint.py --action wait \
-    --endpoint-name <ENDPOINT_NAME>
+    --endpoint-name <ENDPOINT_NAME> \
+    --region <REGION>
 ```
 
 每 60 秒轮询 `DescribeEndpoint`，直到状态变为 `InService` 或 `Failed`。
@@ -74,7 +76,8 @@ python scripts/sagemaker_endpoint.py --action wait \
 
 ```bash
 python scripts/sagemaker_endpoint.py --action test \
-    --endpoint-name <ENDPOINT_NAME>
+    --endpoint-name <ENDPOINT_NAME> \
+    --region <REGION>
 ```
 
 或使用 Python 代码测试（非流式）：
@@ -128,7 +131,8 @@ print()
 
 ```bash
 python scripts/sagemaker_endpoint.py --action delete \
-    --endpoint-name <ENDPOINT_NAME>
+    --endpoint-name <ENDPOINT_NAME> \
+    --region <REGION>
 ```
 
 会依次删除 Endpoint → EndpointConfig → Model。
