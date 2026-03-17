@@ -134,7 +134,7 @@ def _ensure_codebuild_project(codebuild, role_arn):
     )
 
 
-def _run_build(codebuild, source_image, target_image, region, timeout=600):
+def _run_build(codebuild, source_image, target_image, region, timeout=1800):
     """Start CodeBuild build and wait for completion. Timeout in seconds."""
     print(f"Starting CodeBuild: {source_image} -> {target_image}")
     resp = codebuild.start_build(
