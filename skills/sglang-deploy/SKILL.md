@@ -135,47 +135,10 @@ python scripts/check_progress.py --host <IP> --key_file <KEY> --username <USER> 
 
 仅当用户选择启用监控时执行。参考 [SGLang Production Metrics](https://docs.sglang.io/references/production_metrics.html)。
 
+使用 `scripts/setup_monitor.sh` 脚本，该脚本会从 [sglang 官方仓库](https://github.com/sgl-project/sglang/tree/main/examples/monitoring) 拉取最新的监控配置（Prometheus + Grafana）。
+
 ```bash
-ssh -i <KEY> -o StrictHostKeyChecking=no <USER>@<IP> 'bash -s' << 'MONITOR_EOF'
-set -ex
-
-# 安装 Docker
-if ! command -v docker &> /dev/null; then
-    curl -fsSL https://get.docker.com | sh
-    sudo systemctl enable docker
-    sudo systemctl start docker
-    sudo usermod -aG docker $USER
-fi
-
-# 安装 docker-compose (v2 plugin 优先)
-if ! docker compose version &> /dev/null; then
-    sudo mkdir -p /usr/local/lib/docker/cli-plugins
-    sudo curl -SL "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
-        -o /usr/local/lib/docker/cli-plugins/docker-compose
-    sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
-fi
-
-# 从 GitHub 拉取官方监控配置
-MONITORING_DIR="$HOME/sglang-monitoring"
-if [ -d "$MONITORING_DIR" ]; then
-    cd "$MONITORING_DIR" && git pull
-else
-    git clone --depth 1 --filter=blob:none --sparse \
-        https://github.com/sgl-project/sglang.git "$MONITORING_DIR"
-    cd "$MONITORING_DIR"
-    git sparse-checkout set examples/monitoring
-fi
-
-# 进入监控目录
-cd "$MONITORING_DIR/examples/monitoring"
-
-# 启动监控服务
-docker compose up -d
-
-echo "Monitoring started!"
-echo "Grafana: http://localhost:3000 (anonymous access enabled)"
-echo "Prometheus: http://localhost:9090"
-MONITOR_EOF
+ssh -i <KEY> -o StrictHostKeyChecking=no <USER>@<IP> 'bash -s' < scripts/setup_monitor.sh
 ```
 
 **注意**：
@@ -213,6 +176,7 @@ Prometheus: http://<IP>:9090
 | `scripts/instance_checker.py` | 检测实例配置 (GPU/磁盘/网络) |
 | `scripts/hf_api.py` | 获取模型信息和热门模型列表 |
 | `scripts/cleanup.py` | 清理已部署的服务 |
+| `scripts/setup_monitor.sh` | 安装 Prometheus + Grafana 监控 (从官方仓库拉取配置) |
 | `scripts/ssh_utils.py` | SSH 工具函数 (内部使用) |
 
 ## 故障排除
