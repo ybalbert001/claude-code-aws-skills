@@ -50,11 +50,6 @@ def get_default_bucket(region=None):
     return sess.default_bucket()
 
 
-def get_execution_role():
-    """Get SageMaker execution role."""
-    import sagemaker
-    return sagemaker.get_execution_role()
-
 
 def model_name_sanitize(model_id):
     """Convert model ID to a safe name for AWS resources."""
@@ -282,11 +277,7 @@ def main():
         print(f"Using default S3 bucket: {args.s3_bucket}")
 
     if not args.role_arn and args.action == "deploy":
-        try:
-            args.role_arn = get_execution_role()
-            print(f"Using auto-detected IAM role: {args.role_arn}")
-        except Exception:
-            parser.error("--role-arn is required (auto-detection failed, not running on SageMaker)")
+        parser.error("--role-arn is required for deploy action")
 
     actions = {
         "deploy": action_deploy,

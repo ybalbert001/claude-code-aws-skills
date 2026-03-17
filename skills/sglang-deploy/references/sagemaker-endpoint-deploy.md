@@ -44,13 +44,14 @@ python scripts/sagemaker_endpoint.py --action deploy \
     --model-id <MODEL_ID> \
     --instance-type <INSTANCE_TYPE> \
     --region <REGION> \
+    --role-arn <ROLE_ARN> \
     --sglang-args "<SGLANG_ARGS>"  # 可选，Step 1 中获取的模型特定参数
     --hf-token <HF_TOKEN>  # 可选，gated 模型需要
     --capacity-reservation-arn <FTP_ARN>  # 可选，Flexible Training Plan 预留容量
 ```
 
 - 模型在容器启动时通过 `huggingface_hub.snapshot_download` 直接从 HuggingFace 下载，无需预先上传到 S3
-- IAM Role 和 S3 Bucket 自动检测，也可通过 `--role-arn` / `--s3-bucket` 手动指定（S3 仅用于存放 start.sh）
+- `--role-arn` 必须指定，使用 `setup_iam_roles.sh` 创建的 `sglang-sagemaker-execution-role` 的 ARN；S3 Bucket 自动检测，也可通过 `--s3-bucket` 手动指定（S3 仅用于存放 start.sh）
 - 默认使用预构建镜像 `public.ecr.aws/w4r2d0t2/sagemaker_endpoint/sglang:v0.5.9`，部署时自动通过 CodeBuild 复制到私有 ECR
 - 指定 FTP ARN 时会在 ProductionVariant 中添加 `CapacityReservationConfig`
 
