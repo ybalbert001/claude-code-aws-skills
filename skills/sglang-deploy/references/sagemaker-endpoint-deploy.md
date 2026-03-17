@@ -23,14 +23,34 @@ python scripts/sagemaker_endpoint.py --action upload-model \
 
 **注意**：如果模型已在 S3 上，可跳过此步。
 
-## Step 2: 部署 Endpoint (10-20分钟)
+## Step 2: 获取模型推荐参数
+
+**重要**：不同模型可能需要不同的启动参数。部署前必须先查看模型页面获取推荐配置。
+
+```
+使用 WebFetch 访问: https://huggingface.co/<MODEL_ID>
+提取: SGLang 启动命令和参数
+```
+
+从官方推荐命令中提取模型相关参数，**去掉** `--host`、`--port`、`--model-path`（SageMaker 会自动设置），将剩余参数作为 `--sglang-args` 的值。
+
+例如官方推荐：
+```
+python3 -m sglang.launch_server --model-path xxx --tp-size 4 --tool-call-parser glm47 --mem-fraction-static 0.8 --host 0.0.0.0 --port 8000
+```
+
+则 `--sglang-args` 应为：`"--tp 4 --tool-call-parser glm47 --mem-fraction-static 0.8"`
+
+**注意**：如果模型页面没有 SGLang 特殊参数，可跳过此步，脚本会使用默认值 `--tp <auto> --trust-remote-code --mem-fraction-static 0.85`。
+
+## Step 3: 部署 Endpoint (10-20分钟)
 
 ```bash
 python scripts/sagemaker_endpoint.py --action deploy \
     --model-id <MODEL_ID> \
     --instance-type <INSTANCE_TYPE> \
     --region <REGION> \
-    --tp <TP> \
+    --sglang-args "<SGLANG_ARGS>"  # 可选，Step 2 中获取的模型特定参数
     --capacity-reservation-arn <FTP_ARN>  # 可选，Flexible Training Plan 预留容量
 ```
 
@@ -62,7 +82,7 @@ python scripts/sagemaker_endpoint.py --action deploy \
 | ml.p4d.24xlarge | 8x A100 | 320GB | 70B-180B |
 | ml.p5.48xlarge | 8x H100 | 640GB | 180B+ |
 
-## Step 3: 等待就绪
+## Step 4: 等待就绪
 
 ```bash
 python scripts/sagemaker_endpoint.py --action wait \

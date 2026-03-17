@@ -120,16 +120,17 @@ def action_deploy(args):
     endpoint_name = base_name
 
     # Generate start.sh
+    # SageMaker-fixed params: --host, --port, --model-path
+    # All other sglang params come from --sglang-args (or defaults)
+    sglang_args = args.sglang_args if args.sglang_args else f"--tp {tp} --trust-remote-code --mem-fraction-static 0.85"
     start_sh_content = f"""#!/bin/bash
-s5cmd sync {s3_model_path}/* /opt/ml/modelfile/
+s5cmd sync --concurrency 64 {s3_model_path}/* /opt/ml/modelfile/
 
 python3 -m sglang.launch_server \\
     --host 0.0.0.0 \\
     --port 8080 \\
     --model-path /opt/ml/modelfile/ \\
-    --tp {tp} \\
-    --trust-remote-code \\
-    --mem-fraction-static 0.85
+    {sglang_args}
 """
 
     # Package start.sh as tar.gz and upload to S3
@@ -297,6 +298,8 @@ def main():
     parser.add_argument("--hf-token", help="HuggingFace token for gated models")
     parser.add_argument("--capacity-reservation-arn",
                         help="Flexible Training Plan (FTP) capacity reservation ARN")
+    parser.add_argument("--sglang-args", default="",
+                        help="SGLang launch args (replaces defaults; e.g. '--tp 4 --chat-template chatml --mem-fraction-static 0.8')")
     parser.add_argument("--region", help="AWS region")
 
     args = parser.parse_args()
