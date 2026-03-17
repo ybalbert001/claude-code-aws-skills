@@ -36,6 +36,253 @@ def clear_cache():
     _cache = {}
 
 
+def fetch_model_config(model_id: str, timeout: int = 10) -> Optional[Dict[str, Any]]:
+    """
+    Fetch config.json from a HuggingFace model repo.
+
+    This is useful when the HF API doesn't return parameter counts (e.g. for
+    newer or community models). The config.json contains architecture details
+    that can be used to estimate parameter counts.
+
+    Args:
+        model_id: HuggingFace model ID (e.g., "zai-org/GLM-4.7-Flash")
+        timeout: Request timeout in seconds
+
+    Returns:
+        Parsed config.json dict or None if unavailable
+    """
+    cache_key = f"model_config:{model_id}"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        url = f"https://huggingface.co/{model_id}/raw/main/config.json"
+        response = requests.get(url, timeout=timeout)
+        response.raise_for_status()
+        data = response.json()
+        _set_cache(cache_key, data)
+        return data
+    except Exception:
+        return None
+
+
+def estimate_params_from_config(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Estimate parameter count from model config.json.
+
+    Supports:
+    - Standard dense transformers (Llama, Qwen, Mistral, etc.)
+    - MoE models (Mixtral, DeepSeek-MoE, GLM-4-MoE, Qwen-MoE, etc.)
+    - MLA attention (DeepSeek-V2/V3, GLM-4.7-Flash)
+
+    Returns:
+        {
+            "total_params_billions": float,
+            "active_params_billions": float or None (for MoE),
+            "model_weight_size_gb": float (BF16),
+            "is_moe": bool,
+            "architecture": str,
+            "details": dict  (breakdown)
+        }
+        or None if config is insufficient
+    """
+    hidden_size = config.get("hidden_size")
+    num_layers = config.get("num_hidden_layers")
+    vocab_size = config.get("vocab_size")
+
+    if not all([hidden_size, num_layers, vocab_size]):
+        return None
+
+    num_attention_heads = config.get("num_attention_heads", 32)
+    num_kv_heads = config.get("num_key_value_heads", num_attention_heads)
+    intermediate_size = config.get("intermediate_size", hidden_size * 4)
+    architecture = config.get("architectures", ["unknown"])[0] if config.get("architectures") else "unknown"
+
+    # Detect MLA (Multi-head Latent Attention)
+    q_lora_rank = config.get("q_lora_rank")
+    kv_lora_rank = config.get("kv_lora_rank")
+    qk_nope_head_dim = config.get("qk_nope_head_dim")
+    qk_rope_head_dim = config.get("qk_rope_head_dim")
+    v_head_dim = config.get("v_head_dim")
+    use_mla = all([kv_lora_rank, qk_nope_head_dim, qk_rope_head_dim, v_head_dim])
+
+    # Detect MoE
+    n_routed_experts = config.get("n_routed_experts") or config.get("num_local_experts", 0)
+    num_experts_per_tok = config.get("num_experts_per_tok") or config.get("num_experts_per_token", 0)
+    moe_intermediate_size = config.get("moe_intermediate_size", 0)
+    n_shared_experts = config.get("n_shared_experts", 0)
+    is_moe = n_routed_experts > 0
+
+    # --- Embedding ---
+    embed_params = vocab_size * hidden_size
+
+    # --- Attention per layer ---
+    if use_mla:
+        # MLA-style attention
+        attn_params = (
+            hidden_size * (q_lora_rank or 0) +  # q_down
+            (q_lora_rank or 0) * num_attention_heads * (qk_nope_head_dim + qk_rope_head_dim) +  # q_up
+            hidden_size * (kv_lora_rank + qk_rope_head_dim) +  # kv_down
+            kv_lora_rank * num_attention_heads * (qk_nope_head_dim + v_head_dim) +  # kv_up
+            num_attention_heads * v_head_dim * hidden_size  # output
+        )
+    else:
+        # Standard GQA/MHA attention
+        head_dim = hidden_size // num_attention_heads
+        attn_params = (
+            hidden_size * num_attention_heads * head_dim +  # Q
+            hidden_size * num_kv_heads * head_dim +  # K
+            hidden_size * num_kv_heads * head_dim +  # V
+            num_attention_heads * head_dim * hidden_size  # O
+        )
+
+    # --- FFN per layer ---
+    if is_moe:
+        # Shared experts
+        shared_ffn = n_shared_experts * (3 * hidden_size * intermediate_size) if n_shared_experts else 0
+        # Routed experts
+        routed_ffn = n_routed_experts * (3 * hidden_size * moe_intermediate_size) if moe_intermediate_size else 0
+        # Router gate
+        router_params = hidden_size * n_routed_experts
+        total_ffn = shared_ffn + routed_ffn + router_params
+        # Active FFN (only topk experts active)
+        active_ffn = (
+            (n_shared_experts * (3 * hidden_size * intermediate_size) if n_shared_experts else 0) +
+            num_experts_per_tok * (3 * hidden_size * moe_intermediate_size) if moe_intermediate_size else 0
+        ) + router_params
+    else:
+        # Dense FFN (gate_proj + up_proj + down_proj for SwiGLU, or 2 projections)
+        # Detect SwiGLU/GeGLU (3 projections) vs standard (2 projections)
+        hidden_act = config.get("hidden_act", "")
+        if hidden_act in ("silu", "swiglu", "gelu_new", "gelu"):
+            total_ffn = 3 * hidden_size * intermediate_size
+        else:
+            total_ffn = 2 * hidden_size * intermediate_size
+        active_ffn = total_ffn
+        router_params = 0
+
+    # --- Layer norm (2 per layer: pre-attn + pre-ffn) ---
+    norm_params = 2 * hidden_size
+
+    # --- Per layer total ---
+    per_layer_total = attn_params + total_ffn + norm_params
+    per_layer_active = attn_params + active_ffn + norm_params
+
+    # --- Total model ---
+    # embedding + layers + final norm + lm_head
+    tie_word_embeddings = config.get("tie_word_embeddings", False)
+    lm_head_params = 0 if tie_word_embeddings else vocab_size * hidden_size
+    final_norm = hidden_size
+
+    total_params = embed_params + per_layer_total * num_layers + final_norm + lm_head_params
+    active_params = embed_params + per_layer_active * num_layers + final_norm + lm_head_params
+
+    total_b = total_params / 1e9
+    active_b = active_params / 1e9
+    weight_size_gb = total_params * 2 / 1e9  # BF16
+
+    result = {
+        "total_params_billions": round(total_b, 1),
+        "active_params_billions": round(active_b, 1) if is_moe else None,
+        "model_weight_size_gb": round(weight_size_gb, 1),
+        "is_moe": is_moe,
+        "architecture": architecture,
+        "details": {
+            "hidden_size": hidden_size,
+            "num_hidden_layers": num_layers,
+            "vocab_size": vocab_size,
+            "num_attention_heads": num_attention_heads,
+            "num_key_value_heads": num_kv_heads,
+            "use_mla": use_mla,
+        }
+    }
+
+    if is_moe:
+        result["details"].update({
+            "n_routed_experts": n_routed_experts,
+            "num_experts_per_tok": num_experts_per_tok,
+            "n_shared_experts": n_shared_experts,
+            "moe_intermediate_size": moe_intermediate_size,
+        })
+
+    return result
+
+
+def fetch_model_info(model_id: str, timeout: int = 10) -> Optional[Dict[str, Any]]:
+    """
+    Fetch comprehensive model information including parameter estimation.
+
+    Combines HF API metadata with config.json-based parameter estimation.
+
+    Args:
+        model_id: HuggingFace model ID
+        timeout: Request timeout in seconds
+
+    Returns:
+        {
+            "model_id": str,
+            "params_billions": float,
+            "active_params_billions": float or None,
+            "model_weight_size_gb": float,
+            "is_moe": bool,
+            "architecture": str,
+            "param_source": "safetensors" | "config_estimate" | "name_parse",
+            "requirements": dict,
+            "details": dict,
+        }
+        or None if model info cannot be determined
+    """
+    info: Dict[str, Any] = {"model_id": model_id}
+
+    # 1. Try safetensors.total from HF API
+    params_total = fetch_model_params(model_id, timeout=timeout)
+    if params_total:
+        params_b = params_total / 1e9
+        info["params_billions"] = round(params_b, 1)
+        info["param_source"] = "safetensors"
+    else:
+        params_b = None
+
+    # 2. Fetch config.json for architecture details and param estimation
+    config = fetch_model_config(model_id, timeout=timeout)
+    config_estimate = None
+    if config:
+        config_estimate = estimate_params_from_config(config)
+
+    if config_estimate:
+        info["architecture"] = config_estimate["architecture"]
+        info["is_moe"] = config_estimate["is_moe"]
+        info["active_params_billions"] = config_estimate["active_params_billions"]
+        info["model_weight_size_gb"] = config_estimate["model_weight_size_gb"]
+        info["details"] = config_estimate["details"]
+
+        if params_b is None:
+            # Use config-based estimate
+            params_b = config_estimate["total_params_billions"]
+            info["params_billions"] = params_b
+            info["param_source"] = "config_estimate"
+    else:
+        info["is_moe"] = False
+        info["active_params_billions"] = None
+
+    # 3. Fallback: parse from model name
+    if params_b is None:
+        params_b = parse_params_from_name(model_id)
+        if params_b:
+            info["params_billions"] = params_b
+            info["param_source"] = "name_parse"
+            info["model_weight_size_gb"] = round(params_b * 2, 1)
+
+    if params_b is None:
+        return None
+
+    # 4. Estimate GPU requirements
+    info["requirements"] = estimate_model_requirements(params_b, model_id)
+
+    return info
+
+
 def estimate_model_requirements(params_billions: float, model_id: str = "") -> dict:
     """
     Estimate GPU requirements based on parameter count
@@ -250,9 +497,50 @@ def fetch_trending_models(
 
 
 if __name__ == "__main__":
-    # Test the API
-    print("Fetching trending 32B+ SGLang models...")
-    models = fetch_trending_models(limit=10)
-    for i, m in enumerate(models, 1):
-        print(f"{i}. {m['name']} ({m['params_billions']}B) - {m['hf_model_id']}")
-        print(f"   GPU: {m['min_gpu_memory_gb']}GB, TP={m['recommended_tp']}, likes={m['likes']}")
+    import argparse
+    import json as json_mod
+
+    parser = argparse.ArgumentParser(description="HuggingFace model info & trending models")
+    parser.add_argument("--model_id", type=str, help="Fetch detailed info for a specific model")
+    parser.add_argument("--trending", action="store_true", help="Fetch trending 32B+ SGLang models")
+    parser.add_argument("--json", action="store_true", help="Output in JSON format")
+    parser.add_argument("--limit", type=int, default=10, help="Limit for trending models")
+    args = parser.parse_args()
+
+    if args.model_id:
+        info = fetch_model_info(args.model_id)
+        if info is None:
+            print(f"Error: Could not fetch info for model '{args.model_id}'")
+            exit(1)
+        if args.json:
+            print(json_mod.dumps(info, indent=2))
+        else:
+            print(f"Model: {info['model_id']}")
+            print(f"Architecture: {info.get('architecture', 'unknown')}")
+            print(f"Total Parameters: {info['params_billions']}B")
+            if info.get('active_params_billions'):
+                print(f"Active Parameters: {info['active_params_billions']}B (MoE)")
+            print(f"Model Weight Size (BF16): {info.get('model_weight_size_gb', 'N/A')} GB")
+            print(f"MoE: {'Yes' if info.get('is_moe') else 'No'}")
+            print(f"Param Source: {info.get('param_source', 'unknown')}")
+            req = info.get("requirements", {})
+            if req:
+                print(f"Recommended Instance: {req.get('recommended_instance')}")
+                print(f"Recommended TP: {req.get('recommended_tp')}")
+                print(f"Min GPU Memory: {req.get('min_gpu_memory_gb')} GB")
+            details = info.get("details", {})
+            if details:
+                print(f"--- Architecture Details ---")
+                for k, v in details.items():
+                    print(f"  {k}: {v}")
+    elif args.trending:
+        models = fetch_trending_models(limit=args.limit)
+        if args.json:
+            print(json_mod.dumps(models, indent=2))
+        else:
+            print(f"Trending 32B+ SGLang models:")
+            for i, m in enumerate(models, 1):
+                print(f"{i}. {m['name']} ({m['params_billions']}B) - {m['hf_model_id']}")
+                print(f"   GPU: {m['min_gpu_memory_gb']}GB, TP={m['recommended_tp']}, likes={m['likes']}")
+    else:
+        parser.print_help()

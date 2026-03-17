@@ -11,7 +11,12 @@ description: "在 AWS 上部署 SGLang LLM 推理服务器。支持 3 种部署�
 
 ### 阶段 1：确定部署 MODEL_ID
 
-获取热门模型参考：
+如果用户已指定模型，获取模型详细信息（参数量、架构、MoE、推荐实例等）：
+```bash
+python scripts/hf_api.py --model_id <MODEL_ID>
+```
+
+如果用户未指定模型，获取热门模型供选择：
 ```bash
 python scripts/hf_api.py --trending
 ```
@@ -152,7 +157,7 @@ python scripts/sagemaker_endpoint.py --action delete --endpoint-name <ENDPOINT_N
 
 | 脚本 | 用途 |
 |------|------|
-| `scripts/hf_api.py` | 获取模型信息和热门模型列表 |
+| `scripts/hf_api.py` | 获取模型信息（`--model_id`：参数量、架构、MoE、权重大小、推荐实例）和热门模型列表（`--trending`） |
 | `scripts/instance_checker.py` | EC2: 检测实例配置 (GPU/磁盘/网络) |
 | `scripts/check_progress.py` | EC2: 检查部署进度和服务状态 |
 | `scripts/cleanup.py` | EC2: 清理已部署的服务 |
