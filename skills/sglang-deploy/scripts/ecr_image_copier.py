@@ -31,6 +31,7 @@ phases:
       - ACCOUNT_ID=$(echo $TARGET_IMAGE | cut -d. -f1)
       - REGION=$(echo $TARGET_IMAGE | cut -d. -f4)
       - aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
+      - export DOCKER_BUILDKIT=1
   build:
     commands:
       - echo "Pulling $SOURCE_IMAGE..."
@@ -120,7 +121,7 @@ def _ensure_codebuild_project(codebuild, role_arn):
         artifacts={"type": "NO_ARTIFACTS"},
         environment={
             "type": "LINUX_CONTAINER",
-            "computeType": "BUILD_GENERAL1_XLARGE",
+            "computeType": "BUILD_GENERAL1_LARGE",
             "image": "aws/codebuild/amazonlinux2-x86_64-standard:5.0",
             "privilegedMode": True,
             "environmentVariables": [
