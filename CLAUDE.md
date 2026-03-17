@@ -29,14 +29,17 @@ claude-code-aws-skills/
 | `agentcore-browser` | AWS AgentCore 浏览器自动化 | `browser_session_manager.py`, `browser_tool.py` |
 | `excalidraw` | 图表操作（委托给子代理） | `export_excalidraw.py` |
 | `red-card` | 生成小红书风格图片卡片 | `generate_cards.py` |
-| `sglang-deploy` | 在 AWS EC2 上部署 SGLang LLM 服务器 | `deploy.py`, `cleanup.py` |
+| `sglang-deploy` | 在 AWS 上部署 SGLang LLM 服务器 (EC2 / SageMaker Endpoint) | `sagemaker_endpoint.py`, `instance_checker.py` |
 
 ### sglang-deploy
 
-该插件实现的思路：
-1. 通过交互式问答获取部署的信息
-    1.1 部署计算资源（Ec2 or Hyperpod cluster)
-    1.2 部署的模型
-    1.3 参数设定
-2. 部署计算资源需要人预先提供，插件需要检测该资源的可用性
-3. 部署的方式需要以[sglang的官方文档](https://docs.sglang.io/basic_usage/popular_model_usage.html)为标准材料
+该插件支持两种部署目标（HyperPod Coming Soon）：
+
+**EC2 部署**：通过 SSH 在 GPU 实例上直接部署，支持 Prometheus+Grafana 监控
+**SageMaker Endpoint 部署**：通过 boto3 API 创建托管推理端点，使用预构建公开镜像 `public.ecr.aws/w4r2d0t2/sagemaker_endpoint/sglang:v0.5.9`
+
+实现思路：
+1. 通过交互式问答获取部署信息（目标、模型、参数）
+2. 部署计算资源需要人预先提供，插件检测其可用性
+3. 部署方式以 [sglang 官方文档](https://docs.sglang.io/basic_usage/popular_model_usage.html) 为标准材料
+4. 目标特定的部署细节委托到 `references/` 下的文档
