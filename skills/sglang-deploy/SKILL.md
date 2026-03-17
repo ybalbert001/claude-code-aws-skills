@@ -70,9 +70,15 @@ python scripts/instance_checker.py --host <IP> --key_file <KEY> --username <USER
 
 **SageMaker Endpoint：**
 
-验证 IAM Role 有效性：
+验证 IAM Role 是否已创建：
 ```bash
-aws sts get-caller-identity
+aws iam get-role --role-name sglang-sagemaker-execution-role --query 'Role.Arn' --output text
+aws iam get-role --role-name sglang-ecr-copy-codebuild-role --query 'Role.Arn' --output text
+```
+
+如果 Role 不存在，提示用户执行：
+```bash
+bash scripts/setup_iam_roles.sh
 ```
 
 ### 阶段 5：执行部署
@@ -153,3 +159,5 @@ python scripts/sagemaker_endpoint.py --action delete --endpoint-name <ENDPOINT_N
 | `scripts/ssh_utils.py` | EC2: SSH 工具函数 (内部使用) |
 | `scripts/setup_monitor.sh` | EC2: 安装 Prometheus + Grafana 监控 |
 | `scripts/sagemaker_endpoint.py` | SageMaker Endpoint: 全生命周期管理（模型从 HuggingFace 直接下载） |
+| `scripts/ecr_image_copier.py` | SageMaker Endpoint: 通过 CodeBuild 将 public ECR 镜像复制到私有 ECR |
+| `scripts/setup_iam_roles.sh` | SageMaker Endpoint: 创建所需的 IAM Role（SageMaker + CodeBuild） |

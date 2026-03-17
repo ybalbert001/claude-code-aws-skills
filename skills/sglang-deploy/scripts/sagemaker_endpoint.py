@@ -116,6 +116,11 @@ python3 -m sglang.launch_server \\
         s3_code_path = f"s3://{args.s3_bucket}/endpoint_code/sglang_byoc/{endpoint_model_name}.tar.gz"
         subprocess.run(["aws", "s3", "cp", tar_path, s3_code_path], check=True)
 
+    # Copy public image to private ECR via CodeBuild
+    from ecr_image_copier import ensure_private_image
+    container_uri = ensure_private_image(public_uri=container_uri, region=args.region)
+    print(f"Using private ECR image: {container_uri}")
+
     # Create Model
     print(f"Creating model: {endpoint_model_name}")
     sm.create_model(

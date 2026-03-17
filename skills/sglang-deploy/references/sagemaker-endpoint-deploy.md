@@ -6,8 +6,16 @@
 
 - AWS CLI 已配置
 - Python 依赖：`boto3`, `sagemaker`
-- IAM Role 和 S3 Bucket 可自动检测（在 SageMaker 环境中），也可手动指定
+- **IAM Role 需提前创建**（首次使用需执行）：
+  ```bash
+  bash scripts/setup_iam_roles.sh
+  ```
+  该脚本会创建两个 Role：
+  - `sglang-sagemaker-execution-role` — SageMaker 执行角色（AmazonSageMakerFullAccess）
+  - `sglang-ecr-copy-codebuild-role` — CodeBuild 镜像复制角色（ECR 读写权限）
+- S3 Bucket 可自动检测（在 SageMaker 环境中），也可手动指定
 - 无需本地磁盘空间：模型在 SageMaker 容器启动时直接从 HuggingFace 下载
+- 镜像自动复制：部署时会通过 CodeBuild 将 public ECR 镜像复制到私有 ECR（首次约 2-5 分钟，后续复用）
 
 ## Step 1: 获取模型推荐参数
 
@@ -43,13 +51,14 @@ python scripts/sagemaker_endpoint.py --action deploy \
 
 - 模型在容器启动时通过 `huggingface_hub.snapshot_download` 直接从 HuggingFace 下载，无需预先上传到 S3
 - IAM Role 和 S3 Bucket 自动检测，也可通过 `--role-arn` / `--s3-bucket` 手动指定（S3 仅用于存放 start.sh）
-- 默认使用预构建公开镜像：`public.ecr.aws/w4r2d0t2/sagemaker_endpoint/sglang:v0.5.9`
+- 默认使用预构建镜像 `public.ecr.aws/w4r2d0t2/sagemaker_endpoint/sglang:v0.5.9`，部署时自动通过 CodeBuild 复制到私有 ECR
 - 指定 FTP ARN 时会在 ProductionVariant 中添加 `CapacityReservationConfig`
 
 该命令会：
 1. 动态生成 `start.sh`（包含 `huggingface_hub.snapshot_download` 模型下载 + `sglang.launch_server` 启动参数）
 2. 打包为 tar.gz 上传到 S3 作为 `ModelDataUrl`
-3. 创建 SageMaker Model → EndpointConfig → Endpoint
+3. 通过 CodeBuild 将 public ECR 镜像复制到私有 ECR（首次需创建 ECR repo 和 CodeBuild Project，IAM Role 需提前通过 `setup_iam_roles.sh` 创建）
+4. 创建 SageMaker Model → EndpointConfig → Endpoint
 
 输出 JSON 包含 `endpoint_name`，用于后续步骤。
 
