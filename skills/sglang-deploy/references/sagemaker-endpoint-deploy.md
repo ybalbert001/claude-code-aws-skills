@@ -5,25 +5,11 @@
 ## 前置条件
 
 - AWS CLI 已配置
-- Python 依赖：`boto3`, `sagemaker`, `huggingface_hub`
+- Python 依赖：`boto3`, `sagemaker`
 - IAM Role 和 S3 Bucket 可自动检测（在 SageMaker 环境中），也可手动指定
+- 无需本地磁盘空间：模型在 SageMaker 容器启动时直接从 HuggingFace 下载
 
-## Step 1: 上传模型到 S3 (耗时取决于模型大小)
-
-```bash
-python scripts/sagemaker_endpoint.py --action upload-model \
-    --model-id <MODEL_ID> \
-    --region <REGION> \
-    --hf-token <HF_TOKEN>  # 可选，gated 模型需要
-```
-
-该命令会：
-1. 从 HuggingFace 下载模型（safetensors + config）
-2. `aws s3 sync` 上传到 `s3://<bucket>/models/<model-name>/`
-
-**注意**：如果模型已在 S3 上，可跳过此步。
-
-## Step 2: 获取模型推荐参数
+## Step 1: 获取模型推荐参数
 
 **重要**：不同模型可能需要不同的启动参数。部署前必须先查看模型页面获取推荐配置。
 
@@ -43,23 +29,25 @@ python3 -m sglang.launch_server --model-path xxx --tp-size 4 --tool-call-parser 
 
 **注意**：如果模型页面没有 SGLang 特殊参数，可跳过此步，脚本会使用默认值 `--tp <auto> --trust-remote-code --mem-fraction-static 0.85`。
 
-## Step 3: 部署 Endpoint (10-20分钟)
+## Step 2: 部署 Endpoint (10-20分钟)
 
 ```bash
 python scripts/sagemaker_endpoint.py --action deploy \
     --model-id <MODEL_ID> \
     --instance-type <INSTANCE_TYPE> \
     --region <REGION> \
-    --sglang-args "<SGLANG_ARGS>"  # 可选，Step 2 中获取的模型特定参数
+    --sglang-args "<SGLANG_ARGS>"  # 可选，Step 1 中获取的模型特定参数
+    --hf-token <HF_TOKEN>  # 可选，gated 模型需要
     --capacity-reservation-arn <FTP_ARN>  # 可选，Flexible Training Plan 预留容量
 ```
 
-- IAM Role 和 S3 Bucket 自动检测，也可通过 `--role-arn` / `--s3-bucket` 手动指定
+- 模型在容器启动时通过 `huggingface_hub.snapshot_download` 直接从 HuggingFace 下载，无需预先上传到 S3
+- IAM Role 和 S3 Bucket 自动检测，也可通过 `--role-arn` / `--s3-bucket` 手动指定（S3 仅用于存放 start.sh）
 - 默认使用预构建公开镜像：`public.ecr.aws/w4r2d0t2/sagemaker_endpoint/sglang:v0.5.9`
 - 指定 FTP ARN 时会在 ProductionVariant 中添加 `CapacityReservationConfig`
 
 该命令会：
-1. 动态生成 `start.sh`（包含 `s5cmd sync` 模型下载 + `sglang.launch_server` 启动参数）
+1. 动态生成 `start.sh`（包含 `huggingface_hub.snapshot_download` 模型下载 + `sglang.launch_server` 启动参数）
 2. 打包为 tar.gz 上传到 S3 作为 `ModelDataUrl`
 3. 创建 SageMaker Model → EndpointConfig → Endpoint
 
@@ -82,7 +70,7 @@ python scripts/sagemaker_endpoint.py --action deploy \
 | ml.p4d.24xlarge | 8x A100 | 320GB | 70B-180B |
 | ml.p5.48xlarge | 8x H100 | 640GB | 180B+ |
 
-## Step 4: 等待就绪
+## Step 3: 等待就绪
 
 ```bash
 python scripts/sagemaker_endpoint.py --action wait \

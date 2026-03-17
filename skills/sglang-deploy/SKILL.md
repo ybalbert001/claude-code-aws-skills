@@ -70,10 +70,9 @@ python scripts/instance_checker.py --host <IP> --key_file <KEY> --username <USER
 
 **SageMaker Endpoint：**
 
-验证 IAM Role 有效性和 S3 bucket 可访问：
+验证 IAM Role 有效性：
 ```bash
 aws sts get-caller-identity
-aws s3 ls s3://<S3_BUCKET>/ --max-items 1
 ```
 
 ### 阶段 5：执行部署
@@ -153,4 +152,4 @@ python scripts/sagemaker_endpoint.py --action delete --endpoint-name <ENDPOINT_N
 | `scripts/cleanup.py` | EC2: 清理已部署的服务 |
 | `scripts/ssh_utils.py` | EC2: SSH 工具函数 (内部使用) |
 | `scripts/setup_monitor.sh` | EC2: 安装 Prometheus + Grafana 监控 |
-| `scripts/sagemaker_endpoint.py` | SageMaker Endpoint: 全生命周期管理 |
+| `scripts/sagemaker_endpoint.py` | SageMaker Endpoint: 全生命周期管理（模型从 HuggingFace 直接下载） |

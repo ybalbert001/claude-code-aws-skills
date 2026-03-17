@@ -36,7 +36,7 @@ claude-code-aws-skills/
 该插件支持两种部署目标（HyperPod Coming Soon）：
 
 **EC2 部署**：通过 SSH 在 GPU 实例上直接部署，支持 Prometheus+Grafana 监控
-**SageMaker Endpoint 部署**：通过 boto3 API 创建托管推理端点，使用预构建公开镜像 `public.ecr.aws/w4r2d0t2/sagemaker_endpoint/sglang:v0.5.9`
+**SageMaker Endpoint 部署**：通过 boto3 API 创建托管推理端点，模型从 HuggingFace 直接下载（无需本地磁盘空间），使用预构建公开镜像 `public.ecr.aws/w4r2d0t2/sagemaker_endpoint/sglang:v0.5.9`
 
 实现思路：
 1. 通过交互式问答获取部署信息（目标、模型、参数）

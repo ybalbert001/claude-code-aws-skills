@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """SGLang SageMaker Endpoint deployment tool.
 
-Manages the full lifecycle: model upload, endpoint creation, waiting, testing, and cleanup.
+Manages the full lifecycle: endpoint creation, waiting, testing, and cleanup.
+Model is downloaded directly from HuggingFace at container startup.
 
 Reference: https://github.com/ybalbert001/sglang-aws-kit/tree/main/sagemaker_endpoint_deploy
 """
@@ -9,7 +10,6 @@ Reference: https://github.com/ybalbert001/sglang-aws-kit/tree/main/sagemaker_end
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 import tarfile
@@ -61,52 +61,11 @@ def model_name_sanitize(model_id):
     return model_id.replace("/", "-").replace(".", "-")
 
 
-def action_upload_model(args):
-    """Download model from HuggingFace and upload to S3."""
-    model_name = model_name_sanitize(args.model_id)
-    s3_model_path = f"s3://{args.s3_bucket}/models/{model_name}"
-
-    # Download from HuggingFace
-    local_model_path = os.path.join(tempfile.gettempdir(), "sglang-models", model_name)
-    os.makedirs(local_model_path, exist_ok=True)
-
-    print(f"Downloading model {args.model_id} to {local_model_path}...")
-    env = os.environ.copy()
-    if args.hf_token:
-        env["HF_TOKEN"] = args.hf_token
-
-    from huggingface_hub import snapshot_download
-    snapshot_download(
-        repo_id=args.model_id,
-        local_dir=local_model_path,
-        resume_download=True,
-        max_workers=8,
-        local_dir_use_symlinks=False,
-        ignore_patterns=["*.msgpack", "*.h5"],
-        allow_patterns=["*.safetensors", "*.json", "*.txt"],
-        token=args.hf_token or None,
-    )
-
-    # Upload to S3
-    print(f"Uploading to {s3_model_path}...")
-    subprocess.run(
-        ["aws", "s3", "sync", local_model_path, s3_model_path],
-        check=True,
-    )
-
-    print(json.dumps({
-        "status": "success",
-        "local_path": local_model_path,
-        "s3_path": s3_model_path,
-    }, indent=2))
-
-
 def action_deploy(args):
     """Create SageMaker Model, EndpointConfig, and Endpoint."""
     sm, s3, _, sts = get_boto3_clients(args.region)
 
     model_name = model_name_sanitize(args.model_id)
-    s3_model_path = f"s3://{args.s3_bucket}/models/{model_name}"
     container_uri = DEFAULT_CONTAINER
 
     # Determine TP
@@ -119,12 +78,20 @@ def action_deploy(args):
     endpoint_config_name = base_name
     endpoint_name = base_name
 
-    # Generate start.sh
-    # SageMaker-fixed params: --host, --port, --model-path
-    # All other sglang params come from --sglang-args (or defaults)
+    # Generate start.sh — download model from HuggingFace at container startup
     sglang_args = args.sglang_args if args.sglang_args else f"--tp {tp} --trust-remote-code --mem-fraction-static 0.85"
+    token_line = f"    token='{args.hf_token}',\n" if args.hf_token else ""
     start_sh_content = f"""#!/bin/bash
-s5cmd sync --concurrency 64 {s3_model_path}/* /opt/ml/modelfile/
+python3 -c "
+from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id='{args.model_id}',
+    local_dir='/opt/ml/modelfile/',
+    max_workers=16,
+    ignore_patterns=['*.msgpack', '*.h5', '*.ot', '*.gguf'],
+    allow_patterns=['*.safetensors', '*.json', '*.txt', '*.model', '*.tiktoken'],
+{token_line})
+"
 
 python3 -m sglang.launch_server \\
     --host 0.0.0.0 \\
@@ -194,9 +161,9 @@ python3 -m sglang.launch_server \\
         "endpoint_config_name": endpoint_config_name,
         "model_name": endpoint_model_name,
         "instance_type": args.instance_type,
+        "model_id": args.model_id,
         "tp": tp,
         "container": container_uri,
-        "s3_model_path": s3_model_path,
     }
     if args.capacity_reservation_arn:
         result["capacity_reservation_arn"] = args.capacity_reservation_arn
@@ -284,13 +251,13 @@ def action_delete(args):
 def main():
     parser = argparse.ArgumentParser(description="SGLang SageMaker Endpoint deployment tool")
     parser.add_argument("--action", required=True,
-                        choices=["upload-model", "deploy", "wait", "test", "delete"],
+                        choices=["deploy", "wait", "test", "delete"],
                         help="Action to perform")
     parser.add_argument("--model-id", help="HuggingFace model ID")
     parser.add_argument("--instance-type", default="ml.g6.2xlarge",
                         help="SageMaker instance type (default: ml.g6.2xlarge)")
     parser.add_argument("--role-arn", help="SageMaker execution role ARN")
-    parser.add_argument("--s3-bucket", help="S3 bucket for model artifacts (default: SageMaker default bucket)")
+    parser.add_argument("--s3-bucket", help="S3 bucket for start.sh artifact (default: SageMaker default bucket)")
     parser.add_argument("--sglang-version", default="v0.5.9",
                         help="SGLang version tag (default: v0.5.9)")
     parser.add_argument("--endpoint-name", help="Endpoint name (auto-generated if omitted)")
@@ -305,7 +272,7 @@ def main():
     args = parser.parse_args()
 
     # Auto-detect defaults for S3 bucket and IAM role
-    if not args.s3_bucket and args.action in ("upload-model", "deploy"):
+    if not args.s3_bucket and args.action == "deploy":
         args.s3_bucket = get_default_bucket(args.region)
         print(f"Using default S3 bucket: {args.s3_bucket}")
 
@@ -317,7 +284,6 @@ def main():
             parser.error("--role-arn is required (auto-detection failed, not running on SageMaker)")
 
     actions = {
-        "upload-model": action_upload_model,
         "deploy": action_deploy,
         "wait": action_wait,
         "test": action_test,
@@ -325,7 +291,7 @@ def main():
     }
 
     # Validate required args
-    if args.action in ("upload-model", "deploy") and not args.model_id:
+    if args.action == "deploy" and not args.model_id:
         parser.error("--model-id is required for this action")
     if args.action in ("wait", "test", "delete") and not args.endpoint_name:
         parser.error("--endpoint-name is required for this action")
