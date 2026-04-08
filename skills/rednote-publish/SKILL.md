@@ -50,7 +50,7 @@ cd skills/rednote-publish/xiaohongshu
    - content: 自动提取的摘要
    - images: 切图的本地绝对路径数组
    - tags: 自动提取的话题标签
-   - visibility: **默认 `"仅自己可见"`**，相当于草稿，用户在 App 审核后手动改为公开
+   - visibility: **默认 `"公开可见"`**
    - is_original: **默认 true**
    - schedule_at: 定时发布时间，ISO8601 格式如 `2024-01-20T10:30:00+08:00`（可选）
 
@@ -58,11 +58,10 @@ cd skills/rednote-publish/xiaohongshu
 
 | visibility 值 | 效果 |
 |---|---|
-| `仅自己可见` | **默认**，相当于草稿，用户在 App 审核后手动改为公开 |
+| `仅自己可见` | 相当于草稿，用户在 App 审核后手动改为公开 |
 | `公开可见` | 直接公开发布 |
 | `仅互关好友可见` | 仅互相关注的好友可见 |
 
-默认 `仅自己可见` 是为了安全起见，用户审核满意后可在小红书 App 中修改可见范围为公开。如果用户明确要求直接公开发布，可将 visibility 设为 `公开可见`。
 
 ## 输入输出
 
