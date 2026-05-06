@@ -41,12 +41,27 @@ INSTALL_EOF
 
 ## Step 2: 启动服务 (15-30分钟) - 最耗时
 
-**重要**：不同模型可能需要不同的启动参数。启动前必须先查看模型页面获取推荐配置，如果用户要求安装监控，请务必添加 `--enable-metrics` 参数。
+**重要**：不同模型可能需要不同的启动参数。启动前必须先查看 SGLang 官方文档获取推荐配置，如果用户要求安装监控，请务必添加 `--enable-metrics` 参数。
 
+**获取部署命令：**
+
+使用 `fetch_deploy_cmd.py` 通过 Playwright 从 docs.sglang.io 获取（支持 JS 动态渲染页面）：
+
+```bash
+python scripts/fetch_deploy_cmd.py --model <MODEL_ID> [--series <SERIES>] [--hardware <HW>] [--recipe <RECIPE>]
 ```
-使用 WebFetch 访问: https://huggingface.co/<MODEL_ID>
-提取: SGLang 启动命令和参数 (如 --tp, --chat-template, --trust-remote-code 等)
+
+示例：
+```bash
+# 基本用法
+python scripts/fetch_deploy_cmd.py --model Qwen/Qwen3-235B-A22B
+python scripts/fetch_deploy_cmd.py --model deepseek-ai/DeepSeek-V4-Flash --series DeepSeek-V4
+
+# 指定硬件和部署策略
+python scripts/fetch_deploy_cmd.py --model deepseek-ai/DeepSeek-V4-Flash --series DeepSeek-V4 --hardware H200 --recipe max-throughput
 ```
+
+如果脚本失败（网络问题/Playwright 未安装），fallback 到 WebFetch 访问 `https://huggingface.co/<MODEL_ID>`
 
 默认启动命令（根据模型页面信息调整）：
 

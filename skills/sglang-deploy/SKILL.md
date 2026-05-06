@@ -158,6 +158,7 @@ python scripts/sagemaker_endpoint.py --action delete --endpoint-name <ENDPOINT_N
 | 脚本 | 用途 |
 |------|------|
 | `scripts/hf_api.py` | 获取模型信息（`--model_id`：参数量、架构、MoE、权重大小、推荐实例）和热门模型列表（`--trending`） |
+| `scripts/fetch_deploy_cmd.py` | 通过 Playwright 从 docs.sglang.io 获取部署命令（支持 JS 动态渲染页面） |
 | `scripts/instance_checker.py` | EC2: 检测实例配置 (GPU/磁盘/网络) |
 | `scripts/check_progress.py` | EC2: 检查部署进度和服务状态 |
 | `scripts/cleanup.py` | EC2: 清理已部署的服务 |
