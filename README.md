@@ -14,6 +14,14 @@ Claude Code 插件仓库，包含 AWS 工作流、演示文稿、图表和内容
 | `rednote-publish` | 小红书内容发布 |
 | `sglang-hyperpod-deploy` | SGLang HyperPod 部署（WIP） |
 
+## Utils
+
+| 脚本 | 用途 | 用法 |
+|------|------|------|
+| `create_spot_instance.py` | 创建 Spot EC2 实例 | `python utils/create_spot_instance.py --instance-type p5en.48xlarge` |
+
+参数：`--region`(默认 us-west-2)、`--instance-type`(必填)、`--ami`、`--key-pair`(默认 yuanbo)、`--storage-gb`(默认 2000)、`--name`
+
 ## SGLang 上游 Skills
 
 来自 [sgl-project/sglang/.claude/skills](https://github.com/sgl-project/sglang/tree/main/.claude/skills)，在开发和调试 SGLang 时可参考：
