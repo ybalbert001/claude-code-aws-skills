@@ -1,6 +1,6 @@
 ---
 name: sglang-benchmark
-description: "对部署在 AWS (EC2 / HyperPod) 上的 SGLang 推理服务进行系统化 benchmark。基于 spec.yaml 搜索空间规约生成实验计划，每个实验独立启停服务执行，汇总产出对比报告。当用户请求 '/benchmark-sglang'、需要对 SGLang 进行性能对比测试、调优部署参数、比较 attention backend / TP / 并发策略时使用。"
+description: "对部署在 AWS (EC2 / HyperPod) 上的 SGLang 推理服务进行系统化 benchmark。基于 spec.yaml 搜索空间规约生成实验计划，长时间运行完成所有实验，汇总benchmark结果。"
 ---
 
 # SGLang Benchmark
@@ -17,16 +17,24 @@ description: "对部署在 AWS (EC2 / HyperPod) 上的 SGLang 推理服务进行
 
 ### 阶段 1：信息采集
 
-1. 收集部署目标（`ec2` / `hyperpod`）、SSH 凭据（host / key / user）
-2. 让用户基于 `assets/spec_template.yaml` 填写 `spec.yaml`
-   - 用户可提供 SGLang 文档链接，Claude 通过 WebFetch 辅助补全字段
-3. **base_flags dry run**：
+1. **必须通过 `AskUserQuestion` 工具**依次采集以下字段（不要用纯文本提问）：
+   - **部署目标**：`ec2` / `hyperpod`（单选）
+   - **SSH Host**：EC2 / HyperPod 跳板机的 public IP 或 DNS
+   - **SSH Private Key**：私钥路径（如 `~/.ssh/id_rsa`）
+   - **SSH User**：登录用户名（如 `ubuntu` / `ec2-user`）
+
+   说明：`AskUserQuestion` 每个问题至少需 2 个选项。对 Host / Key / User 这类自由文本字段，给出 1-2 个常见默认值作为选项（如 `ubuntu` / `ec2-user`），用户可点 "Other" 自行输入。
+2. 采集信息构建benchmark的`spec.yaml`(基于 `assets/spec_template.yaml`)
+   - 探测硬件信息并向用户询问部署的模型
+   - 向用户询问部署方式（可以直接提供部署命令，也可以参考网页)
+   - 基于提取的建议和大模型推理知识，提取server运行的base_flags(基线参数)和需要进行search的params
+3. **dry run**：
    ```bash
    bash scripts/dry_run.sh --spec spec.yaml --ssh-host <HOST> --ssh-key <KEY>
    ```
    - 用 `spec.yaml.server.base_flags` 启动 server，健康检查通过后 shutdown
    - 失败时把 server 日志尾部返回给用户，用户修 spec.yaml 后重试，直到通过
-4. 向用户展示已采集信息，确认后进入阶段 2
+4. 向用户展示已采集信息，提取用户确认生成的spec.yaml，确认后进入阶段 2
 
 **约束**：`base_flags` 必须覆盖 `search_space` 的所有键（作为 tier 2 的锚点）。
 
