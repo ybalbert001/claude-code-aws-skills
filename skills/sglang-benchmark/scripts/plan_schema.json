@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "plan.jsonl row",
+  "description": "Single experiment entry in plan.jsonl. One JSON object per line. Each experiment independently starts a server, runs one bench_cmd, and shuts down.",
+  "type": "object",
+  "required": [
+    "experiment_id",
+    "serve_cmd",
+    "bench_cmd",
+    "dependencies",
+    "deploy_target",
+    "output_file",
+    "meta"
+  ],
+  "properties": {
+    "experiment_id": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Unique, monotonically assigned at plan generation time."
+    },
+    "serve_cmd": {
+      "type": "string",
+      "description": "Full shell command to start the SGLang server (run via SSH, backgrounded by runner)."
+    },
+    "bench_cmd": {
+      "type": "string",
+      "description": "Full shell command to run the benchmark."
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {"type": "integer"},
+      "description": "experiment_ids that must complete before this one. Usually empty — experiments on the same EC2 are serialized by the runner due to port/GPU contention, not by plan deps."
+    },
+    "deploy_target": {
+      "type": "string",
+      "enum": ["ec2", "hyperpod"]
+    },
+    "output_file": {
+      "type": "string",
+      "description": "Path where the experiment's result JSON is written (relative to results dir)."
+    },
+    "meta": {
+      "type": "object",
+      "description": "Grouping keys for aggregation.",
+      "required": ["server_config_id"],
+      "properties": {
+        "server_config_id": {
+          "type": "string",
+          "description": "Stable id for a unique server flag combination. Shared across experiments that only differ in dataset/concurrency."
+        },
+        "dataset": {
+          "type": "object",
+          "description": "Dataset slice (kind + resolved fields) for this experiment."
+        },
+        "concurrency": {
+          "type": ["integer", "null"]
+        }
+      }
+    }
+  }
+}

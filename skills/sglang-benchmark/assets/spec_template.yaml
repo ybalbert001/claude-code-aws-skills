@@ -1,0 +1,75 @@
+# SGLang Benchmark 规约模板
+# 描述搜索空间，由 scripts/generate_plan.py 展开为 plan.jsonl
+#
+# 所有列表字段都视为搜索维度，generate_plan 会按笛卡尔积展开。
+# 未列出的字段使用 SGLang bench_serving 默认值。
+
+server:
+  host: 127.0.0.1
+  port: 30000
+  env:
+    CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
+
+  # 基线参数。必须覆盖 search_space 中的所有键，作为 tier 2 的锚点。
+  base_flags:
+    model_path: /path/to/Qwen3-32B
+    tp_size: 8
+    trust_remote_code: true
+    disable_radix_cache: false
+    prefill_attention_backend: fa3
+    decode_attention_backend: fa3
+    chunked_prefill_size: 4096
+    max_running_requests: 128
+    schedule_policy: lpm
+    mem_fraction_static: 0.85
+
+  # 搜索维度。tier 2 逐轴变化，tier 3 笛卡尔积。
+  search_space:
+    prefill_attention_backend: [fa3, flashinfer, trtllm_mha]
+    decode_attention_backend:  [fa3, flashinfer, trtllm_mha]
+    chunked_prefill_size:      [4096, 8192, 16384]
+    max_running_requests:      [128, 256]
+    schedule_policy:           [lpm, fcfs]
+    mem_fraction_static:       [0.85, 0.90]
+    tp_size:                   [8, 4]
+
+benchmark:
+  backend: sglang-oai-chat   # sglang / sglang-oai / sglang-oai-chat
+  tokenizer: /path/to/Qwen3-32B
+  model: /path/to/Qwen3-32B
+  warmup_requests: 8
+  ready_check_timeout_sec: 900
+  seed: 1
+
+# 数据集列表。每个 server 配置都会跑所有 datasets 的所有组合。
+# 每个 dataset 内的列表字段展开为笛卡尔积。
+datasets:
+  # random: --backend sglang --dataset-name random
+  # 映射：num_prompts→--num-prompts, input_len→--random-input,
+  #       output_len→--random-output, request_rate→--request-rate (数值或 inf),
+  #       max_concurrency→--max-concurrency
+  - kind: random
+    num_prompts:     [150]
+    input_len:       [128, 1024]
+    output_len:      [128, 256]
+    request_rate:    [inf]
+    max_concurrency: [5, 25]
+
+  # generated_shared_prefix: --dataset-name generated-shared-prefix
+  # 映射：num_groups→--gsp-num-groups, prompts_per_group→--gsp-prompts-per-group,
+  #       num_turns→--gsp-num-turns, system_prompt_len→--gsp-system-prompt-len,
+  #       question_len→--gsp-question-len, output_len→--gsp-output-len,
+  #       max_concurrency→--max-concurrency
+  - kind: generated_shared_prefix
+    num_groups:         [20]
+    prompts_per_group:  [8]
+    num_turns:          [10, 30]
+    system_prompt_len:  [2048]
+    question_len:       [512]
+    output_len:         [256]
+    max_concurrency:    [25]
+
+search:
+  tier: 2                  # 1: 仅 base / 2: 逐轴 / 3: 笛卡尔积
+  max_candidates: 12       # server 配置数上限；超过则由 Claude 挑选。null 表示不限
+  resume: true             # 已有 output_file 的实验跳过
