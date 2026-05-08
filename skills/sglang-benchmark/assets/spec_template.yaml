@@ -71,5 +71,7 @@ datasets:
 
 search:
   tier: 2                  # 1: 仅 base / 2: 逐轴 / 3: 笛卡尔积
-  max_candidates: 12       # server 配置数上限；超过则由 Claude 挑选。null 表示不限
+  max_candidates: 12       # server 配置数上限；超过则按 priority_axes 排序挑选。null 表示不限
   resume: true             # 已有 output_file 的实验跳过
+  # 可选：覆盖默认优先级。越靠前越优先保留。
+  # priority_axes: [prefill_attention_backend, decode_attention_backend, chunked_prefill_size, max_running_requests, mem_fraction_static, tp_size]

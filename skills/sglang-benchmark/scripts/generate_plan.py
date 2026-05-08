@@ -1,25 +1,25 @@
-"""Generate benchmark plan from spec.yaml.
+"""Generate benchmark plan.json from spec.yaml.
 
-Two stages:
+Single-stage pipeline:
 
-  --stage expand   : expand server.search_space per search.tier, write expanded.json
-  --stage finalize : cross selected server configs × datasets (per-dataset cartesian
-                     product) → plan.jsonl
+  1. Expand `server.search_space` per `search.tier`.
+  2. If expansion > `search.max_candidates`, prune using `search.priority_axes`
+     (base is always kept).
+  3. Cross selected server configs with all dataset combos (per-dataset cartesian
+     product) to produce experiment rows.
+  4. Chain `dependencies` so experiments sharing a `server_config_id` form a chain
+     (exp_i depends on the previous exp with the same server_config_id). This
+     expresses intent for future "same-server reuse" scheduling; the default runner
+     still restarts per experiment.
 
-expanded.json schema:
-  [
-    {"server_config_id": "base",    "flags": {...}},
-    {"server_config_id": "cfg_001", "flags": {...}},
-    ...
-  ]
-
-selected.json is a subset of expanded.json (same list-of-objects format).
-When the expansion size is within max_candidates, selected.json == expanded.json.
+Output is a top-level envelope:
+  {
+    "dependencies": [[], [0], ...],   # dependencies[i] = prereqs of experiment_list[i]
+    "experiment_list": [{experiment_id, serve_cmd, bench_cmd, output_file, meta}, ...]
+  }
 
 Usage:
-  python3 generate_plan.py --spec spec.yaml --stage expand --out expanded.json
-  python3 generate_plan.py --spec spec.yaml --stage finalize \
-      --selected selected.json --out plan.jsonl
+  python3 generate_plan.py --spec spec.yaml --out plan.json
 """
 
 from __future__ import annotations
@@ -108,14 +108,11 @@ def _expand_dataset(dataset: dict[str, Any]) -> list[dict[str, Any]]:
         raise ValueError(f"unknown dataset kind: {kind}")
 
     known_fields = set(DATASET_KIND_MAP[kind]["fields"].keys())
-    # Only fields that appear in the spec and are known; user can omit fields to use
-    # SGLang defaults.
     spec_fields = {k: v for k, v in dataset.items() if k != "kind" and k in known_fields}
     unknown = set(dataset.keys()) - {"kind"} - known_fields
     if unknown:
         raise ValueError(f"unknown fields for dataset kind={kind}: {unknown}")
 
-    # Each field must be a list; scalar→single-element list for convenience.
     axes = {}
     for k, v in spec_fields.items():
         axes[k] = v if isinstance(v, list) else [v]
@@ -165,7 +162,18 @@ def _build_bench_cmd(
     return "python3 -m sglang.bench_serving " + " ".join(args)
 
 
-# ---------- Search space expansion ----------
+# ---------- Server config expansion + selection ----------
+
+DEFAULT_PRIORITY_AXES = [
+    "prefill_attention_backend",
+    "decode_attention_backend",
+    "attention_backend",
+    "chunked_prefill_size",
+    "max_running_requests",
+    "mem_fraction_static",
+    "tp_size",
+]
+
 
 def _validate_base_covers_search_space(
     base: dict[str, Any], search_space: dict[str, list[Any]]
@@ -219,7 +227,6 @@ def _expand_server_configs(
             flags = dict(base)
             for k, v in zip(keys, values):
                 flags[k] = v
-            # Tag base combination explicitly.
             is_base = all(flags[k] == base[k] for k in keys)
             sid = "base" if is_base else f"cfg_{idx:03d}"
             configs.append({"server_config_id": sid, "flags": flags})
@@ -229,53 +236,93 @@ def _expand_server_configs(
     raise ValueError(f"search.tier must be 1, 2 or 3; got {tier}")
 
 
-# ---------- Stages ----------
+def _diff_axes(cfg: dict[str, Any], base: dict[str, Any]) -> list[str]:
+    """Return axes where cfg differs from base."""
+    return [k for k in cfg if k in base and cfg[k] != base[k]]
 
-def stage_expand(spec: dict[str, Any], out_path: Path) -> None:
+
+def _select_configs(
+    configs: list[dict[str, Any]],
+    base: dict[str, Any],
+    max_candidates: int | None,
+    priority_axes: list[str],
+) -> list[dict[str, Any]]:
+    """Prune configs to at most max_candidates while keeping base and prioritizing
+    variants that exercise `priority_axes`.
+
+    Strategy:
+      1. Base is always kept.
+      2. Score each non-base config by (−priority hits, #total axes touched,
+         priority index of first touched axis). Lower = higher priority.
+      3. Sort by score; take the top (max_candidates − 1).
+    """
+    if max_candidates is None or len(configs) <= max_candidates:
+        return configs
+
+    base_cfg = next((c for c in configs if c["server_config_id"] == "base"), None)
+    non_base = [c for c in configs if c["server_config_id"] != "base"]
+
+    priority_rank = {axis: i for i, axis in enumerate(priority_axes)}
+
+    def score(c: dict[str, Any]) -> tuple[int, int, int]:
+        touched = _diff_axes(c["flags"], base)
+        priority_hits = sum(1 for a in touched if a in priority_rank)
+        first_priority_idx = min(
+            (priority_rank[a] for a in touched if a in priority_rank),
+            default=len(priority_axes),
+        )
+        return (-priority_hits, len(touched), first_priority_idx)
+
+    non_base.sort(key=score)
+    keep_n = max_candidates - (1 if base_cfg else 0)
+    return ([base_cfg] if base_cfg else []) + non_base[:keep_n]
+
+
+# ---------- Plan assembly ----------
+
+def _build_dependency_chain(rows: list[dict[str, Any]]) -> list[list[int]]:
+    """Return a positional dependencies list: deps[i] = prereqs for rows[i],
+    chaining experiments that share a server_config_id."""
+    last_by_cfg: dict[str, int] = {}
+    deps: list[list[int]] = []
+    for row in rows:
+        cfg_id = row["meta"]["server_config_id"]
+        prev = last_by_cfg.get(cfg_id)
+        deps.append([prev] if prev is not None else [])
+        last_by_cfg[cfg_id] = row["experiment_id"]
+    return deps
+
+
+def build_plan(spec: dict[str, Any]) -> dict[str, Any]:
     server = spec["server"]
     base = server["base_flags"]
     search_space = server.get("search_space", {})
-    tier = int(spec.get("search", {}).get("tier", 1))
+    search = spec.get("search", {})
+    tier = int(search.get("tier", 1))
+    max_candidates = search.get("max_candidates")
+    priority_axes = search.get("priority_axes") or DEFAULT_PRIORITY_AXES
 
-    configs = _expand_server_configs(base, search_space, tier)
-    out_path.write_text(json.dumps(configs, indent=2, ensure_ascii=False))
-
-    print(f"expanded {len(configs)} server configs (tier={tier}) -> {out_path}")
-    max_cand = spec.get("search", {}).get("max_candidates")
-    if max_cand is not None and len(configs) > max_cand:
-        print(
-            f"WARNING: {len(configs)} > max_candidates={max_cand}. "
-            "Claude should select a subset before --stage finalize.",
-            file=sys.stderr,
-        )
-
-
-def stage_finalize(spec: dict[str, Any], selected_path: Path, out_path: Path) -> None:
-    selected = json.loads(selected_path.read_text())
-    if not isinstance(selected, list) or not all(
-        isinstance(s, dict) and "server_config_id" in s and "flags" in s
-        for s in selected
-    ):
-        raise ValueError(
-            "selected.json must be a list of {server_config_id, flags} objects "
-            "(subset of expanded.json)."
-        )
-
-    server = spec["server"]
     bench = spec.get("benchmark", {})
     datasets_spec = spec.get("datasets", [])
-    deploy_target = spec.get("deploy_target", "ec2")
 
     backend = bench.get("backend", "sglang")
     tokenizer = bench.get("tokenizer")
     model = bench.get("model")
 
-    # Per-dataset combos.
+    expanded = _expand_server_configs(base, search_space, tier)
+    selected = _select_configs(expanded, base, max_candidates, priority_axes)
+
+    print(
+        f"[plan] tier={tier} expanded={len(expanded)} "
+        f"selected={len(selected)} max_candidates={max_candidates}",
+        file=sys.stderr,
+    )
+
     dataset_combos: list[dict[str, Any]] = []
     for d in datasets_spec:
         dataset_combos.extend(_expand_dataset(d))
 
-    plan_lines: list[str] = []
+    rows: list[dict[str, Any]] = []
     exp_id = 0
     for cfg in selected:
         serve_cmd = _build_serve_cmd(
@@ -294,27 +341,24 @@ def stage_finalize(spec: dict[str, Any], selected_path: Path, out_path: Path) ->
                 dataset_combo=dcombo,
                 output_file_remote=remote_out,
             )
-            row = {
+            rows.append({
                 "experiment_id": exp_id,
                 "serve_cmd": serve_cmd,
                 "bench_cmd": bench_cmd,
-                "dependencies": [],
-                "deploy_target": deploy_target,
                 "output_file": local_out,
                 "meta": {
                     "server_config_id": cfg["server_config_id"],
-                    "dataset": dcombo,
                     "concurrency": dcombo.get("max_concurrency"),
+                    "dataset_kind": dcombo.get("kind"),
                 },
-            }
-            plan_lines.append(json.dumps(row, ensure_ascii=False))
+            })
             exp_id += 1
 
-    out_path.write_text("\n".join(plan_lines) + ("\n" if plan_lines else ""))
-    print(
-        f"finalized plan: {len(selected)} server configs × "
-        f"{len(dataset_combos)} dataset combos = {exp_id} experiments -> {out_path}"
-    )
+    deps = _build_dependency_chain(rows)
+    return {
+        "dependencies": deps,
+        "experiment_list": rows,
+    }
 
 
 # ---------- CLI ----------
@@ -322,22 +366,16 @@ def stage_finalize(spec: dict[str, Any], selected_path: Path, out_path: Path) ->
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--spec", required=True, help="spec.yaml path")
-    p.add_argument("--stage", required=True, choices=["expand", "finalize"])
-    p.add_argument("--selected", help="selected.json (required for --stage finalize)")
-    p.add_argument("--out", required=True, help="output path (expanded.json or plan.jsonl)")
+    p.add_argument("--out", required=True, help="output plan.json path")
     args = p.parse_args()
 
     spec = yaml.safe_load(Path(args.spec).read_text())
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if args.stage == "expand":
-        stage_expand(spec, out_path)
-    else:
-        if not args.selected:
-            p.error("--selected is required for --stage finalize")
-        stage_finalize(spec, Path(args.selected), out_path)
-
+    rows = build_plan(spec)
+    out_path.write_text(json.dumps(rows, indent=2, ensure_ascii=False) + "\n")
+    print(f"wrote {len(rows)} experiments -> {out_path}")
     return 0
 
 

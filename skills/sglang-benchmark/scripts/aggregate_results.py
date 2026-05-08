@@ -1,14 +1,14 @@
 """Aggregate experiment results into a markdown report with mermaid charts.
 
 Flow:
-  1. Read plan.jsonl for experiment metadata (server_config_id, dataset, concurrency)
+  1. Read plan.json (JSON array) for experiment metadata (server_config_id, dataset, concurrency)
   2. For each experiment, load its output_file bundle (produced by run_experiment.sh)
   3. Merge into results/all.jsonl (flat rows: meta + extracted metrics)
   4. Group by server_config_id → per-group table + mermaid charts
   5. Cross-config summary table at top
 
 Usage:
-  python3 aggregate_results.py --plan plan.jsonl --results-dir results/ --out report.md
+  python3 aggregate_results.py --plan plan.json --results-dir results/ --out report.md
 """
 
 from __future__ import annotations
@@ -59,25 +59,41 @@ def _extract_metrics(raw: Any) -> dict[str, Any]:
 
 
 def _load_plan(path: Path) -> list[dict[str, Any]]:
-    rows = []
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if line:
-            rows.append(json.loads(line))
-    return rows
-
-
-def _dataset_label(d: dict[str, Any]) -> str:
-    kind = d.get("kind", "?")
-    if kind == "random":
-        return f"random/in={d.get('input_len')}/out={d.get('output_len')}/rate={d.get('request_rate')}"
-    if kind == "generated_shared_prefix":
-        return (
-            f"gsp/groups={d.get('num_groups')}/ppg={d.get('prompts_per_group')}/"
-            f"turns={d.get('num_turns')}/sys={d.get('system_prompt_len')}/"
-            f"q={d.get('question_len')}/out={d.get('output_len')}"
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict) or "experiment_list" not in data:
+        raise ValueError(
+            "plan file must be an object with 'experiment_list' (see plan_schema.json)"
         )
-    return kind
+    return data["experiment_list"]
+
+
+_BENCH_FLAG_LABELS = {
+    "random": ["--random-input", "--random-output", "--request-rate"],
+    "generated-shared-prefix": [
+        "--gsp-num-groups", "--gsp-prompts-per-group", "--gsp-num-turns",
+        "--gsp-system-prompt-len", "--gsp-question-len", "--gsp-output-len",
+    ],
+}
+
+
+def _parse_bench_flags(cmd: str, flags: list[str]) -> dict[str, str]:
+    """Extract --flag VALUE pairs from bench_cmd for dataset labeling."""
+    tokens = cmd.split()
+    out = {}
+    for i, tok in enumerate(tokens):
+        if tok in flags and i + 1 < len(tokens):
+            out[tok.lstrip("-")] = tokens[i + 1]
+    return out
+
+
+def _dataset_label(bench_cmd: str, kind: str) -> str:
+    dataset_name = "generated-shared-prefix" if kind == "generated_shared_prefix" else kind
+    flags = _BENCH_FLAG_LABELS.get(dataset_name, [])
+    kv = _parse_bench_flags(bench_cmd, flags)
+    if not kv:
+        return kind
+    body = "/".join(f"{k}={v}" for k, v in kv.items())
+    return f"{kind}/{body}"
 
 
 def _fmt(v: Any, digits: int = 2) -> str:
@@ -94,31 +110,24 @@ def _build_flat_rows(
     out = []
     for p in plan:
         eid = p["experiment_id"]
-        bundle_path = Path(p["output_file"])
-        if not bundle_path.is_absolute():
-            bundle_path = results_dir.parent / bundle_path if (results_dir / bundle_path.name).exists() is False else results_dir / bundle_path.name
-            # Simpler: look under results_dir by basename.
-            bundle_path = results_dir / Path(p["output_file"]).name
+        bundle_path = results_dir / Path(p["output_file"]).name
+        meta = p.get("meta", {})
+        dataset = _dataset_label(p.get("bench_cmd", ""), meta.get("dataset_kind", "?"))
+
+        base_row = {
+            "experiment_id": eid,
+            "server_config_id": meta.get("server_config_id", "?"),
+            "concurrency": meta.get("concurrency"),
+            "dataset": dataset,
+        }
 
         if not bundle_path.exists():
-            row = {
-                "experiment_id": eid,
-                "server_config_id": p["meta"]["server_config_id"],
-                "concurrency": p["meta"].get("concurrency"),
-                "dataset": _dataset_label(p["meta"].get("dataset", {})),
-                "status": "MISSING",
-            }
+            row = {**base_row, "status": "MISSING"}
             row.update({k: None for k in METRIC_FIELDS})
         else:
             bundle = json.loads(bundle_path.read_text())
             metrics = _extract_metrics(bundle.get("raw"))
-            row = {
-                "experiment_id": eid,
-                "server_config_id": p["meta"]["server_config_id"],
-                "concurrency": p["meta"].get("concurrency"),
-                "dataset": _dataset_label(p["meta"].get("dataset", {})),
-                "status": "OK",
-            }
+            row = {**base_row, "status": "OK"}
             row.update(metrics)
         out.append(row)
     return out

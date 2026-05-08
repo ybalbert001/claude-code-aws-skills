@@ -2,7 +2,7 @@
 # Run a single benchmark experiment. Invoked by subagent in Phase 3.
 #
 # Flow:
-#   1. jq to locate row with --experiment-id in plan.jsonl
+#   1. jq to locate row with --experiment-id in plan.json (JSON array)
 #   2. If --resume and output_file already exists non-empty: skip (exit 0)
 #   3. ssh_run_bg serve_cmd (log: /tmp/sglang-server-exp-N.log)
 #   4. wait_healthy (timeout from spec benchmark.ready_check_timeout_sec, default 900)
@@ -11,7 +11,7 @@
 #   7. shutdown_server; verify port freed
 #
 # Usage:
-#   run_experiment.sh --plan plan.jsonl --experiment-id N \
+#   run_experiment.sh --plan plan.json --experiment-id N \
 #       --ssh-host HOST --ssh-key KEY [--ssh-user ubuntu] \
 #       [--spec spec.yaml] [--results-dir results] [--resume]
 
@@ -53,7 +53,7 @@ done
 export SSH_HOST SSH_KEY SSH_USER
 
 # Extract the plan row for this experiment_id.
-ROW=$(jq -c --argjson id "$EXP_ID" 'select(.experiment_id == $id)' "$PLAN" | head -1)
+ROW=$(jq -c --argjson id "$EXP_ID" '.experiment_list[] | select(.experiment_id == $id)' "$PLAN" | head -1)
 if [[ -z "$ROW" ]]; then
   echo "experiment_id=$EXP_ID not found in $PLAN" >&2
   exit 1
