@@ -113,6 +113,11 @@ if ! wait_healthy "$PORT" "$TIMEOUT" 5; then
 fi
 echo "[exp $EXP_ID] server ready, running bench..."
 
+# bench_serving appends to --output-file; clear any stale file first.
+if [[ -n "$REMOTE_BENCH_OUT" ]]; then
+  ssh_run "rm -f $REMOTE_BENCH_OUT" || true
+fi
+
 # Run bench_cmd. bench_serving handles its own output to --output-file.
 BENCH_STDOUT_TMP=$(mktemp)
 if ! ssh_run "$BENCH_CMD" > "$BENCH_STDOUT_TMP" 2>&1; then

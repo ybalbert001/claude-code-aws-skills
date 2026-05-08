@@ -58,16 +58,31 @@ description: "对部署在 AWS (EC2 / HyperPod) 上的 SGLang 推理服务进行
 
 ### 阶段 3：benchmark 执行
 
-主 agent 按 `dependencies` 拓扑序调度：
+**执行模式**：主 agent 用**一次 Bash 后台任务**（`run_in_background: true`）跑完所有实验，避免跨几十次 tool call 频繁打断用户。
 
-- 对每个就绪实验启动 subagent：
-  ```bash
-  bash scripts/run_experiment.sh --plan plan.json --experiment-id N \
-      --ssh-host <HOST> --ssh-key <KEY> --ssh-user <USER>
-  ```
-- subagent 流程：SSH 启动 `serve_cmd` → 健康检查等待就绪 → 执行 `bench_cmd` → 写入 `output_file` → shutdown 服务
-- 主 agent 用 TaskUpdate 更新进度
-- `search.resume: true` 时跳过已有结果的实验
+```bash
+# 伪代码模板：外层 shell for 循环串行调用 run_experiment.sh
+{
+  for eid in $(python3 -c "import json; print(' '.join(str(e['experiment_id']) for e in json.load(open('plan.json'))['experiment_list']))"); do
+    echo "=== [$(date +%H:%M:%S)] exp $eid ==="
+    bash scripts/run_experiment.sh \
+      --plan plan.json --experiment-id $eid \
+      --spec spec.yaml --results-dir results/ \
+      --ssh-host <HOST> --ssh-key <KEY> --ssh-user <USER> \
+      --resume 2>&1 | grep -E "^\[exp|error|FAILED" || true
+    # 单实验失败不中止 batch，最后再汇总
+  done
+  echo "=== BATCH DONE [$(date +%H:%M:%S)] ==="
+} > runs/<name>/batch.log 2>&1
+# 通过 run_in_background: true 启动；完成后收到 task-notification
+```
+
+**单实验流程**（`run_experiment.sh`）：SSH 启动 `serve_cmd` → 健康检查等待就绪 → 清理远程 `--output-file`（防止 bench_serving append 累积）→ 执行 `bench_cmd` → scp 回结果 → shutdown 服务
+
+**要点**：
+- `--resume` 跳过已有非空 `output_file`，失败重跑安全
+- batch 脚本内 `if ! ...; exit 1` 写法要避免，改为记录失败继续
+- 背景任务完成后，主 agent 查 `batch.log` 汇总失败实验并报告给用户
 
 ### 阶段 4：结果汇总
 
@@ -101,12 +116,7 @@ python scripts/aggregate_results.py --plan plan.json --results-dir results/ --ou
 
 ### plan.json schema
 
-见 `scripts/plan_schema.json`。顶层是一个对象：
-
-| 字段 | 说明 |
-|------|------|
-| `dependencies` | 位置并列的 `list[list[int]]`：`dependencies[i]` 是 `experiment_list[i]` 的前置 experiment_id 列表；generate_plan 按 server_config_id 自动链式生成 |
-| `experiment_list` | 实验列表，每项字段见下 |
+见 `assets/plan_schema.json`。顶层对象只有 `experiment_list`；实验独立（每次重启服务），按列表顺序执行。外层按 dataset 分组：同一 dataset 的所有 server_config 跑完后再进入下一个 dataset。
 
 `experiment_list[i]` 字段：
 
@@ -124,7 +134,7 @@ python scripts/aggregate_results.py --plan plan.json --results-dir results/ --ou
 
 | 脚本 | 语言 | 用途 |
 |------|------|------|
-| `scripts/generate_plan.py` | Python | 阶段 2：读 spec.yaml 一步生成 plan.json（展开 → 按 priority_axes 裁剪到 max_candidates → 交叉 dataset → 同 server_config_id 链式 dependencies） |
+| `scripts/generate_plan.py` | Python | 阶段 2：读 spec.yaml 一步生成 plan.json（展开 → 按 priority_axes 裁剪到 max_candidates → 交叉 dataset，外层 dataset 内层 server_config） |
 | `scripts/aggregate_results.py` | Python | 阶段 4：生成 report.md + 合并 JSONL |
 | `scripts/dry_run.sh` | Shell | 阶段 1：用 base_flags SSH 启停验证，失败时返回日志尾部 |
 | `scripts/run_experiment.sh` | Shell | 阶段 3：subagent 执行单个实验（启停 + bench + 落盘） |

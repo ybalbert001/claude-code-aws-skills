@@ -6,17 +6,16 @@ Single-stage pipeline:
   2. If expansion > `search.max_candidates`, prune using `search.priority_axes`
      (base is always kept).
   3. Cross selected server configs with all dataset combos (per-dataset cartesian
-     product) to produce experiment rows.
-  4. Chain `dependencies` so experiments sharing a `server_config_id` form a chain
-     (exp_i depends on the previous exp with the same server_config_id). This
-     expresses intent for future "same-server reuse" scheduling; the default runner
-     still restarts per experiment.
+     product) to produce experiment rows. Outer loop is dataset: finish all
+     server_configs for one dataset before moving to the next.
 
 Output is a top-level envelope:
   {
-    "dependencies": [[], [0], ...],   # dependencies[i] = prereqs of experiment_list[i]
     "experiment_list": [{experiment_id, serve_cmd, bench_cmd, output_file, meta}, ...]
   }
+
+Experiments are independent (each restarts the server), so the runner iterates
+experiment_list in order.
 
 Usage:
   python3 generate_plan.py --spec spec.yaml --out plan.json
@@ -280,19 +279,6 @@ def _select_configs(
 
 # ---------- Plan assembly ----------
 
-def _build_dependency_chain(rows: list[dict[str, Any]]) -> list[list[int]]:
-    """Return a positional dependencies list: deps[i] = prereqs for rows[i],
-    chaining experiments that share a server_config_id."""
-    last_by_cfg: dict[str, int] = {}
-    deps: list[list[int]] = []
-    for row in rows:
-        cfg_id = row["meta"]["server_config_id"]
-        prev = last_by_cfg.get(cfg_id)
-        deps.append([prev] if prev is not None else [])
-        last_by_cfg[cfg_id] = row["experiment_id"]
-    return deps
-
-
 def build_plan(spec: dict[str, Any]) -> dict[str, Any]:
     server = spec["server"]
     base = server["base_flags"]
@@ -322,16 +308,22 @@ def build_plan(spec: dict[str, Any]) -> dict[str, Any]:
     for d in datasets_spec:
         dataset_combos.extend(_expand_dataset(d))
 
+    # Outer loop = dataset (per SKILL.md: finish all server_configs for one
+    # dataset before moving to the next). Inner loop = server_config.
     rows: list[dict[str, Any]] = []
     exp_id = 0
-    for cfg in selected:
-        serve_cmd = _build_serve_cmd(
+    serve_cmd_cache: dict[str, str] = {
+        cfg["server_config_id"]: _build_serve_cmd(
             server_host=server.get("host", "127.0.0.1"),
             server_port=int(server.get("port", 30000)),
             env=server.get("env"),
             flags=cfg["flags"],
         )
-        for dcombo in dataset_combos:
+        for cfg in selected
+    }
+    for dcombo in dataset_combos:
+        for cfg in selected:
+            serve_cmd = serve_cmd_cache[cfg["server_config_id"]]
             remote_out = f"/tmp/sglang-bench-exp-{exp_id:04d}.jsonl"
             local_out = f"results/exp_{exp_id:04d}.json"
             bench_cmd = _build_bench_cmd(
@@ -354,11 +346,7 @@ def build_plan(spec: dict[str, Any]) -> dict[str, Any]:
             })
             exp_id += 1
 
-    deps = _build_dependency_chain(rows)
-    return {
-        "dependencies": deps,
-        "experiment_list": rows,
-    }
+    return {"experiment_list": rows}
 
 
 # ---------- CLI ----------
@@ -373,9 +361,9 @@ def main() -> int:
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    rows = build_plan(spec)
-    out_path.write_text(json.dumps(rows, indent=2, ensure_ascii=False) + "\n")
-    print(f"wrote {len(rows)} experiments -> {out_path}")
+    plan = build_plan(spec)
+    out_path.write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n")
+    print(f"wrote {len(plan['experiment_list'])} experiments -> {out_path}")
     return 0
 
 

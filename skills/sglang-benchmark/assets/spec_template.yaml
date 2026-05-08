@@ -51,9 +51,9 @@ datasets:
   - kind: random
     num_prompts:     [150]
     input_len:       [128, 1024]
-    output_len:      [128, 256]
+    output_len:      [128]
     request_rate:    [inf]
-    max_concurrency: [5, 25]
+    max_concurrency: [25]
 
   # generated_shared_prefix: --dataset-name generated-shared-prefix
   # 映射：num_groups→--gsp-num-groups, prompts_per_group→--gsp-prompts-per-group,

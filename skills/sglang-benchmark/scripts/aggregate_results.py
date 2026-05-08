@@ -44,15 +44,15 @@ METRIC_FIELDS = [
 def _extract_metrics(raw: Any) -> dict[str, Any]:
     """From the bundle's 'raw' field (list of jsonl objects), pull the summary.
 
-    bench_serving typically writes one aggregate line per run. Take the first
-    object that contains throughput fields; fall back to empty.
+    bench_serving appends a summary line per run; if the remote output file was
+    not cleared between runs, multiple lines accumulate. Take the LAST object
+    with throughput fields (freshest run wins). Fallback: single-dict raw.
     """
     if not isinstance(raw, list):
         return {k: None for k in METRIC_FIELDS}
-    for obj in raw:
+    for obj in reversed(raw):
         if isinstance(obj, dict) and any(k in obj for k in ("request_throughput", "output_throughput")):
             return {k: obj.get(k) for k in METRIC_FIELDS}
-    # Fallback: if there's exactly one dict, use it even without throughput keys.
     if len(raw) == 1 and isinstance(raw[0], dict):
         return {k: raw[0].get(k) for k in METRIC_FIELDS}
     return {k: None for k in METRIC_FIELDS}
@@ -62,7 +62,7 @@ def _load_plan(path: Path) -> list[dict[str, Any]]:
     data = json.loads(path.read_text())
     if not isinstance(data, dict) or "experiment_list" not in data:
         raise ValueError(
-            "plan file must be an object with 'experiment_list' (see plan_schema.json)"
+            "plan file must be an object with 'experiment_list' (see assets/plan_schema.json)"
         )
     return data["experiment_list"]
 
