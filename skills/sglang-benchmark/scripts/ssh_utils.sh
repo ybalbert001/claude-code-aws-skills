@@ -89,6 +89,27 @@ shutdown_server() {
   return 0
 }
 
+# shutdown_with_cmd "<cleanup_cmd>" "<port>"
+#   Run a user-provided cleanup command on the remote (covers docker / python / custom launchers),
+#   then poll until the port is freed (up to ~20s).
+shutdown_with_cmd() {
+  local cleanup_cmd="$1"
+  local port="$2"
+
+  ssh_run "$cleanup_cmd" || echo "shutdown_with_cmd: cleanup_cmd returned non-zero (continuing)" >&2
+
+  # Poll for port release.
+  local deadline=$(( $(date +%s) + 20 ))
+  while (( $(date +%s) < deadline )); do
+    if ! ssh_run_capture "lsof -ti:$port 2>/dev/null" | grep -q .; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "shutdown_with_cmd: port $port still in use after cleanup_cmd" >&2
+  return 1
+}
+
 # tail_remote_log "<log_path>" [lines=100]
 tail_remote_log() {
   local log="$1"

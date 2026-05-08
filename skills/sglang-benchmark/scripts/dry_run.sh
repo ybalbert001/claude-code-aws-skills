@@ -45,8 +45,9 @@ _read() { python3 "$SCRIPT_DIR/_spec_read.py" "$SPEC" "$1" "${2:-}"; }
 
 PORT=$(_read server.port 30000)
 TIMEOUT=$(_read benchmark.ready_check_timeout_sec 900)
+CLEANUP_CMD=$(_read server.cleanup_cmd "")
 
-# Build serve_cmd directly from base_flags by reusing generate_plan's builder.
+# Build serve_cmd: prefer raw server.serve_cmd if set; else assemble from base_flags.
 SERVE_CMD=$(PYTHONPATH="$SCRIPT_DIR" python3 - "$SPEC" <<'PY'
 import sys, yaml
 from pathlib import Path
@@ -54,13 +55,17 @@ import generate_plan as gp
 
 spec = yaml.safe_load(Path(sys.argv[1]).read_text())
 server = spec["server"]
-cmd = gp._build_serve_cmd(
-    server_host=server.get("host", "127.0.0.1"),
-    server_port=int(server.get("port", 30000)),
-    env=server.get("env"),
-    flags=server["base_flags"],
-)
-print(cmd)
+raw = server.get("serve_cmd")
+if raw:
+    print(raw)
+else:
+    cmd = gp._build_serve_cmd(
+        server_host=server.get("host", "127.0.0.1"),
+        server_port=int(server.get("port", 30000)),
+        env=server.get("env"),
+        flags=server["base_flags"],
+    )
+    print(cmd)
 PY
 )
 
@@ -75,8 +80,13 @@ cleanup_done=0
 cleanup() {
   (( cleanup_done )) && return
   cleanup_done=1
-  echo "[dry_run] shutting down (pid=$PID, port=$PORT)..."
-  shutdown_server "$PID" "$PORT" || echo "[dry_run] shutdown reported issue" >&2
+  if [[ -n "$CLEANUP_CMD" ]]; then
+    echo "[dry_run] shutting down via cleanup_cmd (port=$PORT)..."
+    shutdown_with_cmd "$CLEANUP_CMD" "$PORT" || echo "[dry_run] shutdown reported issue" >&2
+  else
+    echo "[dry_run] shutting down (pid=$PID, port=$PORT)..."
+    shutdown_server "$PID" "$PORT" || echo "[dry_run] shutdown reported issue" >&2
+  fi
 }
 trap cleanup EXIT
 

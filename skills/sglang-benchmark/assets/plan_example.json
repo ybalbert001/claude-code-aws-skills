@@ -4,6 +4,7 @@
       "experiment_id": 0,
       "serve_cmd": "CUDA_VISIBLE_DEVICES=0 python3 -m sglang.launch_server --model-path Qwen/Qwen3-0.6B --tp-size 1 --trust-remote-code --attention-backend flashinfer --mem-fraction-static 0.85 --host 127.0.0.1 --port 30000",
       "bench_cmd": "python3 -m sglang.bench_serving --backend sglang-oai-chat --tokenizer Qwen/Qwen3-0.6B --model Qwen/Qwen3-0.6B --dataset-name random --num-prompts 200 --random-input 128 --random-output 128 --max-concurrency 8 --output-file /tmp/sglang-bench-exp-0000.jsonl",
+      "cleanup_cmd": "pkill -9 -f 'sglang.launch_server' || true; pids=$(lsof -ti:30000 2>/dev/null || true); [ -n \"$pids\" ] && kill -9 $pids || true",
       "output_file": "results/exp_0000.json",
       "meta": {"server_config_id": "base", "concurrency": 8, "dataset_kind": "random"}
     },
@@ -11,13 +12,15 @@
       "experiment_id": 1,
       "serve_cmd": "CUDA_VISIBLE_DEVICES=0 python3 -m sglang.launch_server --model-path Qwen/Qwen3-0.6B --tp-size 1 --trust-remote-code --attention-backend triton --mem-fraction-static 0.85 --host 127.0.0.1 --port 30000",
       "bench_cmd": "python3 -m sglang.bench_serving --backend sglang-oai-chat --tokenizer Qwen/Qwen3-0.6B --model Qwen/Qwen3-0.6B --dataset-name random --num-prompts 200 --random-input 128 --random-output 128 --max-concurrency 8 --output-file /tmp/sglang-bench-exp-0001.jsonl",
+      "cleanup_cmd": "pkill -9 -f 'sglang.launch_server' || true; pids=$(lsof -ti:30000 2>/dev/null || true); [ -n \"$pids\" ] && kill -9 $pids || true",
       "output_file": "results/exp_0001.json",
       "meta": {"server_config_id": "cfg_001", "concurrency": 8, "dataset_kind": "random"}
     },
     {
       "experiment_id": 2,
-      "serve_cmd": "CUDA_VISIBLE_DEVICES=0 python3 -m sglang.launch_server --model-path Qwen/Qwen3-0.6B --tp-size 1 --trust-remote-code --attention-backend flashinfer --mem-fraction-static 0.85 --host 127.0.0.1 --port 30000",
+      "serve_cmd": "docker run --rm -d --name sglang --gpus all -p 30000:30000 lmsysorg/sglang:latest python3 -m sglang.launch_server --model-path Qwen/Qwen3-0.6B --host 0.0.0.0 --port 30000",
       "bench_cmd": "python3 -m sglang.bench_serving --backend sglang-oai-chat --tokenizer Qwen/Qwen3-0.6B --model Qwen/Qwen3-0.6B --dataset-name random --num-prompts 200 --random-input 128 --random-output 128 --max-concurrency 32 --output-file /tmp/sglang-bench-exp-0002.jsonl",
+      "cleanup_cmd": "docker rm -f sglang 2>/dev/null || true",
       "output_file": "results/exp_0002.json",
       "meta": {"server_config_id": "base", "concurrency": 32, "dataset_kind": "random"}
     }

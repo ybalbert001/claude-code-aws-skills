@@ -61,6 +61,7 @@ fi
 
 SERVE_CMD=$(jq -r '.serve_cmd' <<<"$ROW")
 BENCH_CMD=$(jq -r '.bench_cmd' <<<"$ROW")
+CLEANUP_CMD=$(jq -r '.cleanup_cmd // empty' <<<"$ROW")
 OUTPUT_FILE_REL=$(jq -r '.output_file' <<<"$ROW")
 OUTPUT_FILE="$RESULTS_DIR/$(basename "$OUTPUT_FILE_REL")"
 # Remote bench output path is encoded in bench_cmd via --output-file.
@@ -100,8 +101,13 @@ EXIT_STATUS=1
 cleanup() {
   (( cleanup_done )) && return
   cleanup_done=1
-  echo "[exp $EXP_ID] shutting down (pid=$PID, port=$PORT)"
-  shutdown_server "$PID" "$PORT" || echo "[exp $EXP_ID] shutdown issue" >&2
+  if [[ -n "$CLEANUP_CMD" ]]; then
+    echo "[exp $EXP_ID] shutting down via cleanup_cmd (port=$PORT)"
+    shutdown_with_cmd "$CLEANUP_CMD" "$PORT" || echo "[exp $EXP_ID] shutdown issue" >&2
+  else
+    echo "[exp $EXP_ID] shutting down (pid=$PID, port=$PORT)"
+    shutdown_server "$PID" "$PORT" || echo "[exp $EXP_ID] shutdown issue" >&2
+  fi
 }
 trap cleanup EXIT
 

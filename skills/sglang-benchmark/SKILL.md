@@ -26,7 +26,10 @@ description: "对部署在 AWS (EC2 / HyperPod) 上的 SGLang 推理服务进行
    说明：`AskUserQuestion` 每个问题至少需 2 个选项。对 Host / Key / User 这类自由文本字段，给出 1-2 个常见默认值作为选项（如 `ubuntu` / `ec2-user`），用户可点 "Other" 自行输入。
 2. 构建benchmark的`spec.yaml`(基于 `assets/spec_template.yaml`)
    - 探测硬件信息并向用户询问部署的模型
-   - 通过 `AskUserQuestion` 工具询问用户部署命令或者要求提供部署参考网页
+   - 通过 `AskUserQuestion` 工具询问部署方式：
+     - **基于 base_flags 拼装**（支持 server 侧参数搜索）：用户提供部署参考，从中提取 `base_flags` 与 `search_space`
+     - **原样启动命令**（docker / 自定义启动器，不做 server 搜索）：填入 `server.serve_cmd`，强制 `tier=1`
+   - 通过 `AskUserQuestion` 工具询问用户 shutdown 命令（填入 `server.cleanup_cmd`），提供选项：`pkill -9 -f 'sglang.launch_server' || true` 或 `docker rm -f sglang 2>/dev/null || true`
    - 通过 `AskUserQuestion` 工具询问benchmakr的`search.max_candidates`
    - 基于提取的建议和大模型推理知识，提取server运行的base_flags(基线参数)和需要进行search的params
 3. **dry run**：
@@ -105,8 +108,10 @@ python scripts/aggregate_results.py --plan plan.json --results-dir results/ --ou
 | 字段 | 说明 |
 |------|------|
 | `server.host` / `port` / `env` | 服务运行环境 |
-| `server.base_flags` | 基线参数（必须覆盖 search_space 所有键） |
+| `server.serve_cmd` | 可选。原样启动命令（docker / 自定义启动器）。设置后忽略 `base_flags` / `search_space`，强制 `tier=1` |
+| `server.base_flags` | 基线参数（必须覆盖 search_space 所有键）。`serve_cmd` 模式下可省略 |
 | `server.search_space` | 搜索维度与候选值 |
+| `server.cleanup_cmd` | 可选。统一 server 销毁命令，覆盖 python/docker/自定义启动器；留空则回退到默认 `kill $PID + lsof` |
 | `benchmark.backend` | `sglang` / `sglang-oai` / `sglang-oai-chat` |
 | `datasets` | 数据集列表（`random` / `generated_shared_prefix`），每个 dataset 内列表字段做笛卡尔积 |
 | `search.tier` | 1 / 2 / 3 |
@@ -125,6 +130,7 @@ python scripts/aggregate_results.py --plan plan.json --results-dir results/ --ou
 | `experiment_id` | 整数，唯一 |
 | `serve_cmd` | SSH 启动命令（完整字符串） |
 | `bench_cmd` | benchmark 命令（完整字符串，未列出的参数用 SGLang 默认值） |
+| `cleanup_cmd` | 可选。SSH 执行的 server 销毁命令；由 `spec.yaml.server.cleanup_cmd` 透传 |
 | `output_file` | 本地结果 JSON 落盘路径 |
 | `meta` | `{server_config_id, concurrency, dataset_kind}` 用于后续分组聚合 |
 

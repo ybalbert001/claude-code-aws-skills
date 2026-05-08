@@ -281,7 +281,8 @@ def _select_configs(
 
 def build_plan(spec: dict[str, Any]) -> dict[str, Any]:
     server = spec["server"]
-    base = server["base_flags"]
+    raw_serve_cmd = server.get("serve_cmd")
+    base = server.get("base_flags", {})
     search_space = server.get("search_space", {})
     search = spec.get("search", {})
     tier = int(search.get("tier", 1))
@@ -290,19 +291,38 @@ def build_plan(spec: dict[str, Any]) -> dict[str, Any]:
 
     bench = spec.get("benchmark", {})
     datasets_spec = spec.get("datasets", [])
+    cleanup_cmd = server.get("cleanup_cmd")
+
+    # Raw serve_cmd mode: one fixed server config, tier must be 1.
+    if raw_serve_cmd:
+        if tier != 1:
+            raise ValueError(
+                "server.serve_cmd is set (raw mode); server-side search is unsupported. "
+                "Set search.tier=1 or remove server.serve_cmd to use base_flags."
+            )
+        if search_space:
+            print(
+                "[plan] warning: server.search_space ignored because server.serve_cmd is set",
+                file=sys.stderr,
+            )
 
     backend = bench.get("backend", "sglang")
     tokenizer = bench.get("tokenizer")
     model = bench.get("model")
 
-    expanded = _expand_server_configs(base, search_space, tier)
-    selected = _select_configs(expanded, base, max_candidates, priority_axes)
-
-    print(
-        f"[plan] tier={tier} expanded={len(expanded)} "
-        f"selected={len(selected)} max_candidates={max_candidates}",
-        file=sys.stderr,
-    )
+    if raw_serve_cmd:
+        selected = [{"server_config_id": "base", "flags": {}}]
+        print(f"[plan] raw serve_cmd mode (tier=1, 1 config)", file=sys.stderr)
+    else:
+        if not base:
+            raise ValueError("server.base_flags is required when server.serve_cmd is not set")
+        expanded = _expand_server_configs(base, search_space, tier)
+        selected = _select_configs(expanded, base, max_candidates, priority_axes)
+        print(
+            f"[plan] tier={tier} expanded={len(expanded)} "
+            f"selected={len(selected)} max_candidates={max_candidates}",
+            file=sys.stderr,
+        )
 
     dataset_combos: list[dict[str, Any]] = []
     for d in datasets_spec:
@@ -312,15 +332,18 @@ def build_plan(spec: dict[str, Any]) -> dict[str, Any]:
     # dataset before moving to the next). Inner loop = server_config.
     rows: list[dict[str, Any]] = []
     exp_id = 0
-    serve_cmd_cache: dict[str, str] = {
-        cfg["server_config_id"]: _build_serve_cmd(
-            server_host=server.get("host", "127.0.0.1"),
-            server_port=int(server.get("port", 30000)),
-            env=server.get("env"),
-            flags=cfg["flags"],
-        )
-        for cfg in selected
-    }
+    if raw_serve_cmd:
+        serve_cmd_cache: dict[str, str] = {"base": raw_serve_cmd}
+    else:
+        serve_cmd_cache = {
+            cfg["server_config_id"]: _build_serve_cmd(
+                server_host=server.get("host", "127.0.0.1"),
+                server_port=int(server.get("port", 30000)),
+                env=server.get("env"),
+                flags=cfg["flags"],
+            )
+            for cfg in selected
+        }
     for dcombo in dataset_combos:
         for cfg in selected:
             serve_cmd = serve_cmd_cache[cfg["server_config_id"]]
@@ -333,7 +356,7 @@ def build_plan(spec: dict[str, Any]) -> dict[str, Any]:
                 dataset_combo=dcombo,
                 output_file_remote=remote_out,
             )
-            rows.append({
+            row: dict[str, Any] = {
                 "experiment_id": exp_id,
                 "serve_cmd": serve_cmd,
                 "bench_cmd": bench_cmd,
@@ -343,7 +366,10 @@ def build_plan(spec: dict[str, Any]) -> dict[str, Any]:
                     "concurrency": dcombo.get("max_concurrency"),
                     "dataset_kind": dcombo.get("kind"),
                 },
-            })
+            }
+            if cleanup_cmd:
+                row["cleanup_cmd"] = cleanup_cmd
+            rows.append(row)
             exp_id += 1
 
     return {"experiment_list": rows}

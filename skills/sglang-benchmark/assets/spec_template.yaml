@@ -10,6 +10,19 @@ server:
   env:
     CUDA_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
 
+  # 可选：原样启动命令（docker / 自定义启动器）。
+  # 设置后忽略 base_flags / search_space，强制 tier=1（不支持 server 侧搜索）。
+  # 示例：
+  # serve_cmd: "docker run --rm -d --name sglang --gpus all -p 30000:30000 lmsysorg/sglang:latest python3 -m sglang.launch_server --model-path Qwen/Qwen3-0.6B --host 0.0.0.0 --port 30000"
+
+  # 可选：统一的 server 清理命令（SSH 远程执行）。
+  # 覆盖所有启动方式：python -m / docker run / 自定义启动器。
+  # 留空则回退到默认 kill $PID + lsof -ti:$PORT。
+  # 示例：
+  #   python 直启：   pkill -9 -f 'sglang.launch_server' || true
+  #   docker 启动：   docker rm -f sglang 2>/dev/null || true
+  # cleanup_cmd: "pkill -9 -f 'sglang.launch_server' || true; pids=$(lsof -ti:30000 2>/dev/null || true); [ -n \"$pids\" ] && kill -9 $pids || true"
+
   # 基线参数。必须覆盖 search_space 中的所有键，作为 tier 2 的锚点。
   base_flags:
     model_path: /path/to/Qwen3-32B
