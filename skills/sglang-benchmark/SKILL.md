@@ -49,12 +49,12 @@ description: "对部署在 AWS (EC2 / HyperPod) 上的 SGLang 推理服务进行
    ```
    内部流程：
    - 依据 `search.tier` 展开 `search_space`：tier 1 仅 base；tier 2 逐轴变化；tier 3 笛卡尔积
-   - 若展开数量 > `search.max_candidates`，按 `search.priority_axes`（默认覆盖 attention_backend / chunked_prefill_size / max_running_requests / mem_fraction_static / tp_size）排序保留（base 必保留）
+   - 若展开数量 > `search.max_candidates`，按 `search.priority_axes` 排序保留（base 必保留）
    - 与所有 dataset 组合笛卡尔积展开为实验列表
-   - 同 `server_config_id` 的实验通过 `dependencies` 链接（预留给未来"同 server 复用"调度；默认 runner 仍按行串行）
-   - 每个实验独立启停服务（消除冷启动偏差）
 
-2. 展示 plan 给用户确认。未通过则调整 spec.yaml（改 tier / max_candidates / priority_axes / 搜索维度）重跑。
+   注意：执行顺序为一组bench dataset, 需要跑完所有的server_config，然后再跑下一组dataset
+
+2. 展示 plan 给用户确认。未通过则一直提示用户调整 spec.yaml（改 tier / max_candidates / priority_axes / 搜索维度）。
 
 ### 阶段 3：benchmark 执行
 
