@@ -96,8 +96,8 @@ python scripts/aggregate_results.py --plan plan.json --results-dir results/ --ou
 产出：
 - `results/all.jsonl`：所有实验结果合并
 - `report.md`：
-  - 按 server 配置分组的 markdown 对比表（吞吐 / TTFT p50/p99 / ITL）
-  - Mermaid xychart：吞吐 vs 并发、TTFT vs 并发
+  - 顶部 cross-workload summary：每个 dataset 的最佳 server_config
+  - 按 **dataset (workload)** 分组的 markdown 对比表（server_config × concurrency → 吞吐 / TTFT p50/p99 / ITL）
 
 ## 核心数据契约
 

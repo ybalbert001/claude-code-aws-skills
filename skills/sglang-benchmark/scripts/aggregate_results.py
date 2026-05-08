@@ -1,11 +1,11 @@
-"""Aggregate experiment results into a markdown report with mermaid charts.
+"""Aggregate experiment results into a markdown report.
 
 Flow:
   1. Read plan.json (JSON array) for experiment metadata (server_config_id, dataset, concurrency)
   2. For each experiment, load its output_file bundle (produced by run_experiment.sh)
   3. Merge into results/all.jsonl (flat rows: meta + extracted metrics)
-  4. Group by server_config_id → per-group table + mermaid charts
-  5. Cross-config summary table at top
+  4. Group by dataset (workload) → per-workload table (server_config × concurrency)
+  5. Cross-workload summary table at top (best server_config per workload)
 
 Usage:
   python3 aggregate_results.py --plan plan.json --results-dir results/ --out report.md
@@ -150,26 +150,10 @@ def _render_md_table(headers: list[str], rows: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
-def _mermaid_xychart(
-    title: str, x_label: str, y_label: str, xs: list[Any], ys: list[float]
-) -> str:
-    xs_str = "[" + ", ".join(f'"{x}"' for x in xs) + "]"
-    ys_str = "[" + ", ".join(f"{y:.2f}" if isinstance(y, (int, float)) else "0" for y in ys) + "]"
-    return (
-        "```mermaid\n"
-        "xychart-beta\n"
-        f'  title "{title}"\n'
-        f"  x-axis {xs_str}\n"
-        f'  y-axis "{y_label}"\n'
-        f"  line {ys_str}\n"
-        "```"
-    )
-
-
-def _render_group_section(sid: str, group_rows: list[dict[str, Any]]) -> str:
+def _render_group_section(dataset: str, group_rows: list[dict[str, Any]]) -> str:
     headers = [
         "exp",
-        "dataset",
+        "server_config",
         "conc",
         "status",
         "req/s",
@@ -180,10 +164,10 @@ def _render_group_section(sid: str, group_rows: list[dict[str, Any]]) -> str:
         "ITL p99 (ms)",
     ]
     table_rows = []
-    for r in sorted(group_rows, key=lambda x: x["experiment_id"]):
+    for r in sorted(group_rows, key=lambda x: (x.get("concurrency") or 0, x.get("server_config_id") or "", x["experiment_id"])):
         table_rows.append([
             str(r["experiment_id"]),
-            r["dataset"],
+            str(r.get("server_config_id", "?")),
             _fmt(r["concurrency"], 0),
             r["status"],
             _fmt(r.get("request_throughput"), 2),
@@ -194,44 +178,14 @@ def _render_group_section(sid: str, group_rows: list[dict[str, Any]]) -> str:
             _fmt(r.get("p99_itl_ms"), 1),
         ])
     table = _render_md_table(headers, table_rows)
-
-    # Mermaid: throughput vs concurrency (numeric conc only).
-    conc_rows = [r for r in group_rows if isinstance(r.get("concurrency"), int) and r.get("output_throughput") is not None]
-    conc_rows.sort(key=lambda x: x["concurrency"])
-    charts = []
-    if conc_rows:
-        charts.append(
-            _mermaid_xychart(
-                f"output_throughput vs concurrency — {sid}",
-                "concurrency",
-                "output_tok/s",
-                [r["concurrency"] for r in conc_rows],
-                [r["output_throughput"] for r in conc_rows],
-            )
-        )
-        charts.append(
-            _mermaid_xychart(
-                f"TTFT p99 vs concurrency — {sid}",
-                "concurrency",
-                "TTFT p99 (ms)",
-                [r["concurrency"] for r in conc_rows],
-                [r.get("p99_ttft_ms") or 0 for r in conc_rows],
-            )
-        )
-
-    parts = [f"## server_config = `{sid}`", "", table, ""]
-    if charts:
-        parts.extend(charts)
-        parts.append("")
-    return "\n".join(parts)
+    return "\n".join([f"## dataset = `{dataset}`", "", table, ""])
 
 
 def _render_cross_summary(rows: list[dict[str, Any]]) -> str:
-    """Best-throughput-per-config summary at top."""
-    buckets = _group_by([r for r in rows if r["status"] == "OK"], "server_config_id")
+    """Best server_config per dataset (workload) at top."""
+    buckets = _group_by([r for r in rows if r["status"] == "OK"], "dataset")
     summary_rows = []
-    for sid, group in buckets.items():
-        # Take the row with max output_throughput.
+    for dataset, group in buckets.items():
         best = max(
             (r for r in group if r.get("output_throughput") is not None),
             key=lambda r: r["output_throughput"],
@@ -240,8 +194,8 @@ def _render_cross_summary(rows: list[dict[str, Any]]) -> str:
         if best is None:
             continue
         summary_rows.append([
-            sid,
-            best["dataset"],
+            dataset,
+            str(best.get("server_config_id", "?")),
             _fmt(best["concurrency"], 0),
             _fmt(best.get("request_throughput"), 2),
             _fmt(best.get("output_throughput"), 2),
@@ -249,7 +203,7 @@ def _render_cross_summary(rows: list[dict[str, Any]]) -> str:
             _fmt(best.get("p99_ttft_ms"), 1),
         ])
     summary_rows.sort(key=lambda r: float(r[4]) if r[4] != "-" else 0, reverse=True)
-    headers = ["server_config", "best_dataset", "conc", "req/s", "out_tok/s", "TTFT p50", "TTFT p99"]
+    headers = ["dataset", "best_server_config", "conc", "req/s", "out_tok/s", "TTFT p50", "TTFT p99"]
     return _render_md_table(headers, summary_rows)
 
 
@@ -270,13 +224,13 @@ def main() -> int:
 
     # Build report.md.
     sections = ["# SGLang Benchmark Report", ""]
-    sections.append("## Cross-config summary (best throughput per server config)")
+    sections.append("## Cross-workload summary (best server_config per dataset)")
     sections.append("")
     sections.append(_render_cross_summary(rows))
     sections.append("")
 
-    for sid, group in _group_by(rows, "server_config_id").items():
-        sections.append(_render_group_section(sid, group))
+    for dataset, group in _group_by(rows, "dataset").items():
+        sections.append(_render_group_section(dataset, group))
 
     Path(args.out).write_text("\n".join(sections))
     print(f"wrote {args.out} and {all_jsonl} ({len(rows)} experiments)")
