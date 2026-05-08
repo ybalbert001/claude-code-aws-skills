@@ -26,12 +26,9 @@ description: "对部署在 AWS (EC2 / HyperPod) 上的 SGLang 推理服务进行
    说明：`AskUserQuestion` 每个问题至少需 2 个选项。对 Host / Key / User 这类自由文本字段，给出 1-2 个常见默认值作为选项（如 `ubuntu` / `ec2-user`），用户可点 "Other" 自行输入。
 2. 构建benchmark的`spec.yaml`(基于 `assets/spec_template.yaml`)
    - 探测硬件信息并向用户询问部署的模型
-   - 通过 `AskUserQuestion` 工具询问部署方式：
-     - **基于 base_flags 拼装**（支持 server 侧参数搜索）：用户提供部署参考，从中提取 `base_flags` 与 `search_space`
-     - **原样启动命令**（docker / 自定义启动器，不做 server 搜索）：填入 `server.serve_cmd`，强制 `tier=1`
-   - 通过 `AskUserQuestion` 工具询问用户 shutdown 命令（填入 `server.cleanup_cmd`），提供选项：`pkill -9 -f 'sglang.launch_server' || true` 或 `docker rm -f sglang 2>/dev/null || true`
-   - 通过 `AskUserQuestion` 工具询问benchmakr的`search.max_candidates`
-   - 基于提取的建议和大模型推理知识，提取server运行的base_flags(基线参数)和需要进行search的params
+   - 通过 `AskUserQuestion` 工具询问参考部署命令 (填入 `server.serve_cmd`）, 请自动提取base_flags和search_space
+   - 通过 `AskUserQuestion` 工具询问shutdown命令（填入 `server.cleanup_cmd`），提供选项：`pkill -9 -f 'sglang.launch_server' || true` 或 `docker rm -f sglang 2>/dev/null || true`
+   - 通过 `AskUserQuestion` 工具询问benchmark命令 （填入 `server.bench_cmd`）以及`search.max_candidates`
 3. **dry run**：
    ```bash
    bash scripts/dry_run.sh --spec spec.yaml --ssh-host <HOST> --ssh-key <KEY>

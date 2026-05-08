@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "plan.json",
+  "description": "Top-level plan file. Experiments are independent (each restarts the server) and are iterated in order. Outer grouping is by dataset: all server_configs for one dataset run before moving to the next dataset.",
+  "type": "object",
+  "required": ["experiment_list"],
+  "properties": {
+    "experiment_list": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["experiment_id", "serve_cmd", "bench_cmd", "output_file", "meta"],
+        "properties": {
+          "experiment_id": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unique, monotonically assigned at plan generation time."
+          },
+          "serve_cmd": {
+            "type": "string",
+            "description": "Full shell command to start the SGLang server (run via SSH, backgrounded by runner)."
+          },
+          "bench_cmd": {
+            "type": "string",
+            "description": "Full shell command to run the benchmark (includes --output-file pointing at a remote path)."
+          },
+          "cleanup_cmd": {
+            "type": "string",
+            "description": "Optional. Full shell command (run via SSH) to tear down the server started by serve_cmd. Covers docker / python / custom launchers uniformly. If absent, the runner falls back to kill $PID + lsof -ti:$PORT."
+          },
+          "output_file": {
+            "type": "string",
+            "description": "Local path where the wrapped result JSON is written after scp."
+          },
+          "meta": {
+            "type": "object",
+            "description": "Minimal grouping keys for aggregation.",
+            "required": ["server_config_id"],
+            "properties": {
+              "server_config_id": {
+                "type": "string",
+                "description": "Stable id for a unique server flag combination. Shared across experiments that only differ in dataset/concurrency."
+              },
+              "concurrency": {"type": ["integer", "null"]},
+              "dataset_kind": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  }
+}
