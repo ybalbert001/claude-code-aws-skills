@@ -51,6 +51,11 @@ def parse_args():
         default=None,
         help="Instance Name tag (default: spot-{instance-type})",
     )
+    parser.add_argument(
+        "--subnet-id",
+        default=None,
+        help="Subnet ID (pins the AZ). Default: EC2 picks a default subnet.",
+    )
     return parser.parse_args()
 
 
@@ -65,44 +70,49 @@ def create_spot_instance(args):
     print(f"  Key Pair:      {args.key_pair}")
     print(f"  Storage:       {args.storage_gb} GB gp3")
     print(f"  Name:          {name}")
+    print(f"  Subnet:        {args.subnet_id or '(default)'}")
     print(f"  Purchasing:    Spot (one-time)")
     print(f"  Capacity Res:  None")
 
-    try:
-        response = ec2.run_instances(
-            ImageId=args.ami,
-            InstanceType=args.instance_type,
-            KeyName=args.key_pair,
-            MinCount=1,
-            MaxCount=1,
-            InstanceMarketOptions={
-                "MarketType": "spot",
-                "SpotOptions": {
-                    "SpotInstanceType": "one-time",
+    run_kwargs = dict(
+        ImageId=args.ami,
+        InstanceType=args.instance_type,
+        KeyName=args.key_pair,
+        MinCount=1,
+        MaxCount=1,
+        InstanceMarketOptions={
+            "MarketType": "spot",
+            "SpotOptions": {
+                "SpotInstanceType": "one-time",
+            },
+        },
+        CapacityReservationSpecification={
+            "CapacityReservationPreference": "none",
+        },
+        BlockDeviceMappings=[
+            {
+                "DeviceName": "/dev/xvda",
+                "Ebs": {
+                    "VolumeSize": args.storage_gb,
+                    "VolumeType": "gp3",
+                    "DeleteOnTermination": True,
                 },
-            },
-            CapacityReservationSpecification={
-                "CapacityReservationPreference": "none",
-            },
-            BlockDeviceMappings=[
-                {
-                    "DeviceName": "/dev/xvda",
-                    "Ebs": {
-                        "VolumeSize": args.storage_gb,
-                        "VolumeType": "gp3",
-                        "DeleteOnTermination": True,
-                    },
-                }
-            ],
-            TagSpecifications=[
-                {
-                    "ResourceType": "instance",
-                    "Tags": [
-                        {"Key": "Name", "Value": name},
-                    ],
-                }
-            ],
-        )
+            }
+        ],
+        TagSpecifications=[
+            {
+                "ResourceType": "instance",
+                "Tags": [
+                    {"Key": "Name", "Value": name},
+                ],
+            }
+        ],
+    )
+    if args.subnet_id:
+        run_kwargs["SubnetId"] = args.subnet_id
+
+    try:
+        response = ec2.run_instances(**run_kwargs)
     except Exception as e:
         print(f"ERROR: Failed to create instance: {e}", file=sys.stderr)
         sys.exit(1)

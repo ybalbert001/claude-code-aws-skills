@@ -53,23 +53,49 @@ def _flag_kv_to_args(key: str, value: Any) -> list[str]:
     return [flag, str(value)]
 
 
+def _render_flags(flags: dict[str, Any]) -> str:
+    """Render a flags dict as a space-separated CLI args string (no --host/--port)."""
+    args: list[str] = []
+    for k, v in flags.items():
+        args.extend(_flag_kv_to_args(k, v))
+    return " ".join(args)
+
+
 def _build_serve_cmd(
     server_host: str,
     server_port: int,
     env: dict[str, Any] | None,
     flags: dict[str, Any],
 ) -> str:
-    """Build the full SGLang launch_server command string."""
+    """Build the full SGLang launch_server command string (python direct mode)."""
     env_prefix = ""
     if env:
         env_prefix = " ".join(f"{k}={v}" for k, v in env.items()) + " "
 
-    args: list[str] = []
-    for k, v in flags.items():
-        args.extend(_flag_kv_to_args(k, v))
-    args.extend(["--host", str(server_host), "--port", str(server_port)])
+    body = _render_flags(flags)
+    return (
+        f"{env_prefix}python3 -m sglang.launch_server {body} "
+        f"--host {server_host} --port {server_port}"
+    )
 
-    return f"{env_prefix}python3 -m sglang.launch_server " + " ".join(args)
+
+def _render_serve_cmd_template(
+    template: str,
+    flags: dict[str, Any],
+    host: str,
+    port: int,
+) -> str:
+    """Substitute {flags} / {host} / {port} placeholders in a serve_cmd template.
+
+    Supports custom launchers (docker / srun / etc.) while still sweeping
+    server-side flags. {flags} is required for sweep mode; if absent the caller
+    treats the string as raw (tier=1 only).
+    """
+    return (
+        template.replace("{flags}", _render_flags(flags))
+        .replace("{host}", str(host))
+        .replace("{port}", str(port))
+    )
 
 
 # ---------- Dataset kind registry ----------
@@ -293,16 +319,23 @@ def build_plan(spec: dict[str, Any]) -> dict[str, Any]:
     datasets_spec = spec.get("datasets", [])
     cleanup_cmd = server.get("cleanup_cmd")
 
-    # Raw serve_cmd mode: one fixed server config, tier must be 1.
-    if raw_serve_cmd:
+    # serve_cmd modes:
+    #   - Absent: build from base_flags + search_space (python direct launch).
+    #   - Template (contains "{flags}"): custom launcher with sweep support.
+    #     base_flags/search_space/tier still apply; flags get substituted in.
+    #   - Raw (no "{flags}"): fixed server config, tier forced to 1.
+    template_mode = bool(raw_serve_cmd) and "{flags}" in raw_serve_cmd
+    raw_mode = bool(raw_serve_cmd) and not template_mode
+
+    if raw_mode:
         if tier != 1:
             raise ValueError(
-                "server.serve_cmd is set (raw mode); server-side search is unsupported. "
-                "Set search.tier=1 or remove server.serve_cmd to use base_flags."
+                "server.serve_cmd is raw (no {flags} placeholder); server-side search "
+                "is unsupported. Set search.tier=1, or add {flags} to serve_cmd to enable sweeps."
             )
         if search_space:
             print(
-                "[plan] warning: server.search_space ignored because server.serve_cmd is set",
+                "[plan] warning: server.search_space ignored (raw serve_cmd without {flags})",
                 file=sys.stderr,
             )
 
@@ -310,16 +343,19 @@ def build_plan(spec: dict[str, Any]) -> dict[str, Any]:
     tokenizer = bench.get("tokenizer")
     model = bench.get("model")
 
-    if raw_serve_cmd:
+    if raw_mode:
         selected = [{"server_config_id": "base", "flags": {}}]
         print(f"[plan] raw serve_cmd mode (tier=1, 1 config)", file=sys.stderr)
     else:
         if not base:
-            raise ValueError("server.base_flags is required when server.serve_cmd is not set")
+            raise ValueError(
+                "server.base_flags is required unless server.serve_cmd is raw (no {flags})"
+            )
         expanded = _expand_server_configs(base, search_space, tier)
         selected = _select_configs(expanded, base, max_candidates, priority_axes)
+        mode_label = "template serve_cmd" if template_mode else "native"
         print(
-            f"[plan] tier={tier} expanded={len(expanded)} "
+            f"[plan] {mode_label} tier={tier} expanded={len(expanded)} "
             f"selected={len(selected)} max_candidates={max_candidates}",
             file=sys.stderr,
         )
@@ -332,13 +368,22 @@ def build_plan(spec: dict[str, Any]) -> dict[str, Any]:
     # dataset before moving to the next). Inner loop = server_config.
     rows: list[dict[str, Any]] = []
     exp_id = 0
-    if raw_serve_cmd:
+    host = server.get("host", "127.0.0.1")
+    port = int(server.get("port", 30000))
+    if raw_mode:
         serve_cmd_cache: dict[str, str] = {"base": raw_serve_cmd}
+    elif template_mode:
+        serve_cmd_cache = {
+            cfg["server_config_id"]: _render_serve_cmd_template(
+                raw_serve_cmd, cfg["flags"], host, port
+            )
+            for cfg in selected
+        }
     else:
         serve_cmd_cache = {
             cfg["server_config_id"]: _build_serve_cmd(
-                server_host=server.get("host", "127.0.0.1"),
-                server_port=int(server.get("port", 30000)),
+                server_host=host,
+                server_port=port,
                 env=server.get("env"),
                 flags=cfg["flags"],
             )
