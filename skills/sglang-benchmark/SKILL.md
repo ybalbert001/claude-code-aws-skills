@@ -26,22 +26,22 @@ description: "对部署在 AWS (EC2 / HyperPod) 上的 SGLang 推理服务进行
    说明：`AskUserQuestion` 每个问题至少需 2 个选项。对 Host / Key / User 这类自由文本字段，给出 1-2 个常见默认值作为选项（如 `ubuntu` / `ec2-user`），用户可点 "Other" 自行输入。
 2. 构建benchmark的`spec.yaml`(基于 `assets/spec_template.yaml`)
    - 探测硬件信息并向用户询问部署的模型
-   - 通过 `AskUserQuestion` 工具询问参考部署命令 (填入 `server.serve_cmd`）, 请自动提取base_flags和search_space
-   - 通过 `AskUserQuestion` 工具询问shutdown命令（填入 `server.cleanup_cmd`），提供选项：`pkill -9 -f 'sglang.launch_server' || true` 或 `docker rm -f sglang 2>/dev/null || true`
-   - 通过 `AskUserQuestion` 工具询问benchmark命令 （填入 `server.bench_cmd`）以及`search.max_candidates`
-3. **dry run**：
-   ```bash
-   bash scripts/dry_run.sh --spec spec.yaml --ssh-host <HOST> --ssh-key <KEY>
-   ```
-   - 用 `spec.yaml.server.base_flags` 启动 server，健康检查通过后 shutdown
-   - 失败时把 server 日志尾部返回给用户，用户修正 spec.yaml 后重试，直到通过
-   说明：spec.yaml需要有一个本地文件来持久化
+   - 创建初版`spec.yaml`文件，需要考虑硬件信息进行适当调整
+   - 提示用户修改`spec.yaml`文件，人工补充`server.serve_cmd`和`server.bench_cmd`
+   - 确认用户修改完毕后，审阅`spec.yaml`自动提取base_flags和search_space，估计search.max_candidates
+   - 与用户交互确认`spec.yaml`
 
-4. 向用户展示已采集信息，通过 `AskUserQuestion` 工具提醒用户确认生成的spec.yaml，确认后进入阶段 2
+4. 进入阶段 2
 
-**约束**：`base_flags` 必须覆盖 `search_space` 的所有键（作为 tier 2 的锚点）。
+### 阶段 2：dry run
 
-### 阶段 2：benchmark 规划
+1. 用 `server.serve_cmd` 启动 server
+2. 通过request测试服务是否ready
+3. 健康检查通过后 shutdown
+
+遇到失败，基于server日志修正 `server.serve_cmd` 不断重试直到通过
+
+### 阶段 3：benchmark 规划
 
 1. 一键生成 plan.jsonl：
    ```bash
@@ -54,9 +54,9 @@ description: "对部署在 AWS (EC2 / HyperPod) 上的 SGLang 推理服务进行
 
    注意：执行顺序为一组bench dataset, 需要跑完所有的server_config，然后再跑下一组dataset
 
-2. 展示 plan 给用户确认。未通过则一直提示用户调整 spec.yaml（改 tier / max_candidates / priority_axes / 搜索维度）。
+2. 与用户确认plan.json。未通过则一直提示用户调整 spec.yaml（改 tier / max_candidates / priority_axes / 搜索维度）。
 
-### 阶段 3：benchmark 执行
+### 阶段 4：benchmark 执行
 
 **执行模式**：主 agent 用**一次 Bash 后台任务**（`run_in_background: true`）跑完所有实验，避免跨几十次 tool call 频繁打断用户。
 
@@ -84,7 +84,7 @@ description: "对部署在 AWS (EC2 / HyperPod) 上的 SGLang 推理服务进行
 - batch 脚本内 `if ! ...; exit 1` 写法要避免，改为记录失败继续
 - 背景任务完成后，主 agent 查 `batch.log` 汇总失败实验并报告给用户
 
-### 阶段 4：结果汇总
+### 阶段 5：结果汇总
 
 ```bash
 python scripts/aggregate_results.py --plan plan.json --results-dir results/ --out report.md
@@ -137,8 +137,7 @@ python scripts/aggregate_results.py --plan plan.json --results-dir results/ --ou
 
 | 脚本 | 语言 | 用途 |
 |------|------|------|
-| `scripts/generate_plan.py` | Python | 阶段 2：读 spec.yaml 一步生成 plan.json（展开 → 按 priority_axes 裁剪到 max_candidates → 交叉 dataset，外层 dataset 内层 server_config） |
-| `scripts/aggregate_results.py` | Python | 阶段 4：生成 report.md + 合并 JSONL |
-| `scripts/dry_run.sh` | Shell | 阶段 1：用 base_flags SSH 启停验证，失败时返回日志尾部 |
-| `scripts/run_experiment.sh` | Shell | 阶段 3：subagent 执行单个实验（启停 + bench + 落盘） |
+| `scripts/generate_plan.py` | Python | 阶段 3：读 spec.yaml 一步生成 plan.json（展开 → 按 priority_axes 裁剪到 max_candidates → 交叉 dataset，外层 dataset 内层 server_config） |
+| `scripts/aggregate_results.py` | Python | 阶段 5：生成 report.md + 合并 JSONL |
+| `scripts/run_experiment.sh` | Shell | 阶段 4：subagent 执行单个实验（启停 + bench + 落盘） |
 | `scripts/ssh_utils.sh` | Shell | 内部：SSH 执行、后台启动、健康检查、强制 shutdown（source 使用） |
