@@ -58,13 +58,13 @@ def _extract_metrics(raw: Any) -> dict[str, Any]:
     return {k: None for k in METRIC_FIELDS}
 
 
-def _load_plan(path: Path) -> list[dict[str, Any]]:
+def _load_plan(path: Path) -> dict[str, Any]:
     data = json.loads(path.read_text())
     if not isinstance(data, dict) or "experiment_list" not in data:
         raise ValueError(
             "plan file must be an object with 'experiment_list' (see assets/plan_schema.json)"
         )
-    return data["experiment_list"]
+    return data
 
 
 _BENCH_FLAG_LABELS = {
@@ -153,7 +153,7 @@ def _render_md_table(headers: list[str], rows: list[list[str]]) -> str:
 def _render_group_section(dataset: str, group_rows: list[dict[str, Any]]) -> str:
     headers = [
         "exp",
-        "server_config",
+        "server_config_id",
         "conc",
         "status",
         "req/s",
@@ -181,30 +181,29 @@ def _render_group_section(dataset: str, group_rows: list[dict[str, Any]]) -> str
     return "\n".join([f"## dataset = `{dataset}`", "", table, ""])
 
 
-def _render_cross_summary(rows: list[dict[str, Any]]) -> str:
-    """Best server_config per dataset (workload) at top."""
-    buckets = _group_by([r for r in rows if r["status"] == "OK"], "dataset")
-    summary_rows = []
-    for dataset, group in buckets.items():
-        best = max(
-            (r for r in group if r.get("output_throughput") is not None),
-            key=lambda r: r["output_throughput"],
-            default=None,
-        )
-        if best is None:
-            continue
-        summary_rows.append([
-            dataset,
-            str(best.get("server_config_id", "?")),
-            _fmt(best["concurrency"], 0),
-            _fmt(best.get("request_throughput"), 2),
-            _fmt(best.get("output_throughput"), 2),
-            _fmt(best.get("median_ttft_ms"), 1),
-            _fmt(best.get("p99_ttft_ms"), 1),
-        ])
-    summary_rows.sort(key=lambda r: float(r[4]) if r[4] != "-" else 0, reverse=True)
-    headers = ["dataset", "best_server_config", "conc", "req/s", "out_tok/s", "TTFT p50", "TTFT p99"]
-    return _render_md_table(headers, summary_rows)
+def _render_server_config_section(
+    server_configs: list[dict[str, Any]],
+    axes: list[str],
+) -> str:
+    """Render the top-level server_config table: rows are configs, columns are search-space axes."""
+    if not server_configs:
+        return ""
+    # If axes were not supplied (older plans), infer them from differing flags.
+    if not axes:
+        seen: dict[str, set] = {}
+        for cfg in server_configs:
+            for k, v in cfg.get("flags", {}).items():
+                seen.setdefault(k, set()).add(repr(v))
+        axes = [k for k, vs in seen.items() if len(vs) > 1]
+    headers = ["server_config_id", *axes]
+    table_rows = []
+    for cfg in server_configs:
+        flags = cfg.get("flags", {})
+        row = [str(cfg.get("server_config_id", "?"))]
+        row.extend(_fmt(flags.get(a)) for a in axes)
+        table_rows.append(row)
+    table = _render_md_table(headers, table_rows)
+    return "\n".join(["## server_config list", "", table, ""])
 
 
 def main() -> int:
@@ -215,19 +214,21 @@ def main() -> int:
     args = p.parse_args()
 
     plan = _load_plan(Path(args.plan))
+    experiment_list = plan["experiment_list"]
+    server_configs = plan.get("server_configs", [])
+    search_space_axes = plan.get("search_space_axes", [])
     results_dir = Path(args.results_dir)
-    rows = _build_flat_rows(plan, results_dir)
+    rows = _build_flat_rows(experiment_list, results_dir)
 
     # Write flat all.jsonl.
     all_jsonl = results_dir / "all.jsonl"
     all_jsonl.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n")
 
-    # Build report.md.
+    # Build report.md: server_config list → per-dataset tables.
     sections = ["# SGLang Benchmark Report", ""]
-    sections.append("## Cross-workload summary (best server_config per dataset)")
-    sections.append("")
-    sections.append(_render_cross_summary(rows))
-    sections.append("")
+    sc_section = _render_server_config_section(server_configs, search_space_axes)
+    if sc_section:
+        sections.append(sc_section)
 
     for dataset, group in _group_by(rows, "dataset").items():
         sections.append(_render_group_section(dataset, group))

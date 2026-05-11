@@ -417,7 +417,21 @@ def build_plan(spec: dict[str, Any]) -> dict[str, Any]:
             rows.append(row)
             exp_id += 1
 
-    return {"experiment_list": rows}
+    # Top-level metadata for report rendering:
+    #   - search_space_axes: ordered list of axes varied across configs
+    #   - server_configs: each config's (id, flags) so the report can show a
+    #     server_config table keyed by search_space axes.
+    search_space_axes = list(search_space.keys()) if not raw_mode else []
+    server_configs_meta = [
+        {"server_config_id": cfg["server_config_id"], "flags": dict(cfg["flags"])}
+        for cfg in selected
+    ]
+
+    return {
+        "search_space_axes": search_space_axes,
+        "server_configs": server_configs_meta,
+        "experiment_list": rows,
+    }
 
 
 # ---------- CLI ----------

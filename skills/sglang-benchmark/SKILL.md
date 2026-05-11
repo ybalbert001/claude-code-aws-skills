@@ -93,7 +93,7 @@ python scripts/aggregate_results.py --plan plan.json --results-dir results/ --ou
 产出：
 - `results/all.jsonl`：所有实验结果合并
 - `report.md`：
-  - 顶部 cross-workload summary：每个 dataset 的最佳 server_config
+  - 顶部 server_config 列表表：各 `server_config_id` 在 search_space 维度上的取值
   - 按 **dataset (workload)** 分组的 markdown 对比表（server_config × concurrency → 吞吐 / TTFT p50/p99 / ITL）
 
 ## 核心数据契约

@@ -5,6 +5,23 @@
   "type": "object",
   "required": ["experiment_list"],
   "properties": {
+    "search_space_axes": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Ordered list of server_flag axes swept in this run. Used by the report to pick columns for the server_config table."
+    },
+    "server_configs": {
+      "type": "array",
+      "description": "One entry per unique server config. Lets the report show each server_config_id's flag values keyed by search_space_axes.",
+      "items": {
+        "type": "object",
+        "required": ["server_config_id", "flags"],
+        "properties": {
+          "server_config_id": {"type": "string"},
+          "flags": {"type": "object", "description": "Full resolved flag map for this config (base + axis overrides)."}
+        }
+      }
+    },
     "experiment_list": {
       "type": "array",
       "items": {
