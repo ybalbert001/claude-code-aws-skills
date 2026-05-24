@@ -100,29 +100,9 @@ def _render_serve_cmd_template(
 
 # ---------- Dataset kind registry ----------
 
-DATASET_KIND_MAP: dict[str, dict[str, Any]] = {
-    "random": {
-        "dataset_name": "random",
-        "fields": {
-            "num_prompts": "--num-prompts",
-            "input_len": "--random-input",
-            "output_len": "--random-output",
-            "request_rate": "--request-rate",
-            "max_concurrency": "--max-concurrency",
-        },
-    },
-    "generated_shared_prefix": {
-        "dataset_name": "generated-shared-prefix",
-        "fields": {
-            "num_groups": "--gsp-num-groups",
-            "prompts_per_group": "--gsp-prompts-per-group",
-            "num_turns": "--gsp-num-turns",
-            "system_prompt_len": "--gsp-system-prompt-len",
-            "question_len": "--gsp-question-len",
-            "output_len": "--gsp-output-len",
-            "max_concurrency": "--max-concurrency",
-        },
-    },
+DATASET_KIND_MAP: dict[str, str] = {
+    "random": "random",
+    "generated_shared_prefix": "generated-shared-prefix",
 }
 
 
@@ -132,14 +112,10 @@ def _expand_dataset(dataset: dict[str, Any]) -> list[dict[str, Any]]:
     if kind not in DATASET_KIND_MAP:
         raise ValueError(f"unknown dataset kind: {kind}")
 
-    known_fields = set(DATASET_KIND_MAP[kind]["fields"].keys())
-    spec_fields = {k: v for k, v in dataset.items() if k != "kind" and k in known_fields}
-    unknown = set(dataset.keys()) - {"kind"} - known_fields
-    if unknown:
-        raise ValueError(f"unknown fields for dataset kind={kind}: {unknown}")
-
     axes = {}
-    for k, v in spec_fields.items():
+    for k, v in dataset.items():
+        if k == "kind":
+            continue
         axes[k] = v if isinstance(v, list) else [v]
 
     keys = list(axes.keys())
@@ -161,23 +137,20 @@ def _build_bench_cmd(
 ) -> str:
     """Build one bench_serving command string from a resolved dataset combo."""
     kind = dataset_combo["kind"]
-    entry = DATASET_KIND_MAP[kind]
+    dataset_name = DATASET_KIND_MAP[kind]
     args: list[str] = [
         "--backend", backend,
-        "--dataset-name", entry["dataset_name"],
+        "--dataset-name", dataset_name,
     ]
     if tokenizer:
         args.extend(["--tokenizer", tokenizer])
     if model:
         args.extend(["--model", model])
 
-    for field_key, cli_flag in entry["fields"].items():
-        if field_key not in dataset_combo:
+    for k, v in dataset_combo.items():
+        if k == "kind" or v is None:
             continue
-        value = dataset_combo[field_key]
-        if value is None:
-            continue
-        args.extend([cli_flag, str(value)])
+        args.extend([_key_to_flag(k), str(v)])
 
     if extra_bench_flags:
         for k, v in extra_bench_flags.items():
