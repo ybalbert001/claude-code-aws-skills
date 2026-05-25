@@ -4,48 +4,17 @@
 
 使用 Bash 工具 + `run_in_background: true` 异步执行以下 SSH 命令。
 
-## Step 1: 安装依赖和 SGLang (10-20分钟)
+## Step 1: 启动服务 (Docker)
 
-```bash
-ssh -i <KEY> -o StrictHostKeyChecking=no <USER>@<IP> 'bash -s' << 'INSTALL_EOF'
-set -ex
-export PATH="$HOME/.local/bin:$PATH"
-export HF_TOKEN="<HF_TOKEN>"  # 如果有
-
-# 安装 pip
-command -v pip3 || (sudo apt-get update && sudo apt-get install -y python3-pip)
-
-# 安装 uv
-command -v uv || pip3 install --break-system-packages uv || pip3 install --user uv
-
-# 安装 CUDA Toolkit (如果没有 nvcc)
-command -v nvcc || sudo apt-get install -y cuda-toolkit-12-8 || sudo apt-get install -y cuda-toolkit
-
-# 使用 uv 安装 SGLang (更快)
-if command -v uv &> /dev/null; then
-    sudo $(which uv) pip install "sglang[all]" --system --break-system-packages
-else
-    sudo pip3 install --break-system-packages "sglang[all]"
-fi
-
-# 修复 PyTorch 2.9.x 与 CuDNN 兼容性
-PYTORCH_VERSION=$(python3 -c "import torch; print(torch.__version__)" 2>/dev/null || echo "unknown")
-if [[ "$PYTORCH_VERSION" == 2.9.* ]]; then
-    echo "Upgrading CuDNN for PyTorch 2.9.x compatibility..."
-    sudo pip3 install --break-system-packages nvidia-cudnn-cu12==9.16.0.29
-fi
-INSTALL_EOF
-```
-
-注意以上脚本中的步骤都不可省略。需要检查确认都安装成功后才进入下一步 Step 2。
-
-## Step 2: 启动服务 (15-30分钟) - 最耗时
-
-**重要**：不同模型可能需要不同的启动参数。启动前必须先查看 SGLang 官方文档获取推荐配置，如果用户要求安装监控，请务必添加 `--enable-metrics` 参数。
+**重要**：不同模型可能需要不同的启动参数。如果用户要求安装监控，请务必添加 `--enable-metrics` 参数。
 
 **获取部署命令：**
 
-使用 `fetch_deploy_cmd.py` 通过 Playwright 从 docs.sglang.io 获取（支持 JS 动态渲染页面）：
+先询问用户是否已有部署命令（如 docker run 命令或 sglang 启动参数）：
+- **用户提供命令** → 直接使用用户提供的命令，适配为下方 Docker 格式
+- **自动获取** → 使用 `fetch_deploy_cmd.py` 从 docs.sglang.io 获取推荐配置
+
+自动获取方式：
 
 ```bash
 python scripts/fetch_deploy_cmd.py --model <MODEL_ID> [--series <SERIES>] [--hardware <HW>] [--recipe <RECIPE>]
@@ -53,79 +22,80 @@ python scripts/fetch_deploy_cmd.py --model <MODEL_ID> [--series <SERIES>] [--har
 
 示例：
 ```bash
-# 基本用法
 python scripts/fetch_deploy_cmd.py --model Qwen/Qwen3-235B-A22B
-python scripts/fetch_deploy_cmd.py --model deepseek-ai/DeepSeek-V4-Flash --series DeepSeek-V4
-
-# 指定硬件和部署策略
 python scripts/fetch_deploy_cmd.py --model deepseek-ai/DeepSeek-V4-Flash --series DeepSeek-V4 --hardware H200 --recipe max-throughput
 ```
 
 如果脚本失败（网络问题/Playwright 未安装），fallback 到 WebFetch 访问 `https://huggingface.co/<MODEL_ID>`
 
-默认启动命令（根据模型页面信息调整）：
+默认启动命令（通过 Docker 运行，默认镜像 `lmsysorg/sglang:latest`）：
 
 ```bash
 ssh -i <KEY> -o StrictHostKeyChecking=no <USER>@<IP> 'bash -s' << 'START_EOF'
-export HF_TOKEN="<HF_TOKEN>"  # 如果有
-pkill -f "sglang.launch_server" 2>/dev/null || true
-sleep 2
-
-# 生成日志文件名 (如 sglang-qwen3.5-397b-a17b-fp8.log)
+set -ex
 MODEL_ID="<MODEL_ID>"
-LOG_FILE="$HOME/sglang-$(echo "$MODEL_ID" | awk -F'/' '{print tolower($NF)}').log"
+CONTAINER_NAME="sglang-$(echo "$MODEL_ID" | awk -F'/' '{print tolower($NF)}')"
 
-nohup python3 -m sglang.launch_server \
-    --model-path $MODEL_ID \
-    --host 0.0.0.0 \
-    --port <SERVICE_PORT> \
-    --tp <TP> \
-    --enable-metrics \
-    > "$LOG_FILE" 2>&1 &
+# 停止已有容器
+docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
-echo "Started with PID: $!"
-echo "Log file: $LOG_FILE"
+docker run -d \
+    --name "$CONTAINER_NAME" \
+    --gpus all \
+    --ipc=host \
+    --network=host \
+    -v ~/.cache/huggingface:/root/.cache/huggingface \
+    -e HF_TOKEN="<HF_TOKEN>" \
+    lmsysorg/sglang:latest \
+    python3 -m sglang.launch_server \
+        --model-path $MODEL_ID \
+        --host 0.0.0.0 \
+        --port <SERVICE_PORT> \
+        --tp <TP> \
+        --enable-metrics
+
+echo "Container started: $CONTAINER_NAME"
 START_EOF
 ```
 
-## Step 3: 等待服务就绪
+查看容器日志：`docker logs -f <CONTAINER_NAME>`
+
+## Step 2: 等待服务就绪
 
 使用 `check_progress.py` 轮询，每 10 秒一次：
 ```bash
 python scripts/check_progress.py --host <IP> --key_file <KEY> --username <USER> --service_port <PORT> \
-    --log_path ~/sglang-<model>.log --pretty
+    --container_name <CONTAINER_NAME> --pretty
 ```
-
-日志路径格式：`~/sglang-{model_name}.log`，如 `~/sglang-qwen3.5-397b-a17b-fp8.log`
 
 - `"api_healthy": true` → 部署成功
 - `"next_action": "wait"` → 继续等待（模型加载中）
 - 超过 10 分钟仍未就绪 → 检查日志
 
-## Step 4: 安装监控 (可选, 3-5分钟)
+## Step 3: 安装监控 (可选, 3-5分钟)
 
 仅当用户选择启用监控时执行。参考 [SGLang Production Metrics](https://docs.sglang.io/references/production_metrics.html)。
 
-使用 `scripts/setup_monitor.sh` 脚本，该脚本会从 [sglang 官方仓库](https://github.com/sgl-project/sglang/tree/main/examples/monitoring) 拉取最新的监控配置（Prometheus + Grafana）。
+使用 `scripts/setup_monitor.sh` 脚本，该脚本会从 [sglang-aws-kit](https://github.com/ybalbert001/sglang-aws-kit/tree/main/monitoring) 拉取监控配置（Prometheus + Grafana）。
 
 ```bash
 ssh -i <KEY> -o StrictHostKeyChecking=no <USER>@<IP> 'bash -s' < scripts/setup_monitor.sh
 ```
 
 **注意**：
-- 官方配置启用了 Grafana 匿名访问，无需密码
+- Grafana 匿名访问，无需密码
 - 预置的 SGLang Dashboard 会自动加载，包含 E2E Latency、TTFT、Cache Hit Rate、Throughput 等指标
 
 ## 故障排除
 
-查看日志（日志路径格式：`~/sglang-{model_name}.log`）：
+查看日志：
 ```bash
-ssh -i <KEY> <USER>@<IP> 'tail -100 ~/sglang-<model>.log'
+ssh -i <KEY> <USER>@<IP> 'docker logs --tail 100 <CONTAINER_NAME>'
 ```
 
 停止服务：
 ```bash
-ssh -i <KEY> <USER>@<IP> 'pkill -f sglang.launch_server'
+ssh -i <KEY> <USER>@<IP> 'docker rm -f <CONTAINER_NAME>'
 ```
 
 | 问题 | 解决方案 |
@@ -134,3 +104,16 @@ ssh -i <KEY> <USER>@<IP> 'pkill -f sglang.launch_server'
 | GPU 未检测到 | 确认实例类型，NVIDIA 驱动 |
 | 内存不足 | 增加 TP 或使用更大实例 |
 | 服务启动超时 | 大模型加载慢，继续等待或检查日志 |
+
+## 访问 Grafana 监控面板
+
+通过 AWS SSM 端口转发在本地访问 Grafana：
+
+```bash
+aws ssm start-session --target <INSTANCE_ID> \
+    --document-name AWS-StartPortForwardingSession \
+    --parameters '{"portNumber":["3000"],"localPortNumber":["3000"]}' \
+    --region <REGION>
+```
+
+然后浏览器打开 `http://localhost:3000` 即可访问 Grafana。

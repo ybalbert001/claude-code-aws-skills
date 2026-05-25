@@ -18,19 +18,19 @@ if ! docker compose version &> /dev/null; then
     sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 fi
 
-# 从 GitHub 拉取官方监控配置
+# 从 sglang-aws-kit 拉取监控配置
 MONITORING_DIR="$HOME/sglang-monitoring"
 if [ -d "$MONITORING_DIR" ]; then
     cd "$MONITORING_DIR" && git pull
 else
     git clone --depth 1 --filter=blob:none --sparse \
-        https://github.com/sgl-project/sglang.git "$MONITORING_DIR"
+        https://github.com/ybalbert001/sglang-aws-kit.git "$MONITORING_DIR"
     cd "$MONITORING_DIR"
-    git sparse-checkout set examples/monitoring
+    git sparse-checkout set monitoring
 fi
 
 # 进入监控目录
-cd "$MONITORING_DIR/examples/monitoring"
+cd "$MONITORING_DIR/monitoring"
 
 # 启动监控服务
 docker compose up -d
