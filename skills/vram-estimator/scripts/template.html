@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>$page_title</title>
+<style>
+  :root {
+    --surface:#fcfcfb; --page:#f9f9f7; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --ring:rgba(11,11,11,.10);
+    --s1:#2a78d6; --s2:#1baf7a; --s3:#eda100; --s4:#008300;
+    --s5:#4a3aa7; --s6:#e34948; --s7:#e87ba4; --s8:#eb6834;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --surface:#1a1a19; --page:#0d0d0d; --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --ring:rgba(255,255,255,.10);
+    --s1:#3987e5; --s2:#199e70; --s3:#c98500; --s4:#008300;
+    --s5:#9085e9; --s6:#e66767; --s7:#d55181; --s8:#d95926;
+  } }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--page); color:var(--ink);
+    font:14px/1.55 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:1180px; margin:0 auto; padding:32px 24px 48px }
+  h1 { font-size:24px; font-weight:600; margin:0 0 4px }
+  .subtitle { color:var(--ink2); margin:0 0 6px }
+  .meta { color:var(--muted); font-size:12.5px; margin:0 0 16px }
+
+  /* filter row — one row, scopes everything below it */
+  .filters { display:flex; gap:24px; align-items:center; flex-wrap:wrap;
+    background:var(--surface); border:1px solid var(--ring); border-radius:10px;
+    padding:10px 16px; margin:0 0 24px }
+  .filters label { display:flex; gap:8px; align-items:center; font-size:13px; color:var(--ink2) }
+  .filters select { font:inherit; color:var(--ink); background:var(--page);
+    border:1px solid var(--grid); border-radius:6px; padding:4px 8px }
+  .fnote { color:var(--muted); font-size:12px; margin-left:auto }
+
+  .cols { display:grid; grid-template-columns:280px 1fr; gap:24px; align-items:start }
+  @media (max-width:860px) { .cols { grid-template-columns:1fr } }
+
+  /* left structure */
+  .panel { background:var(--surface); border:1px solid var(--ring); border-radius:10px; padding:16px }
+  .panel h2 { font-size:13px; font-weight:600; color:var(--ink2); margin:0 0 12px }
+  .io { border:1.5px solid; border-radius:8px; padding:7px 10px; text-align:center;
+    font-size:13px; margin:0 0 10px; background:var(--surface) }
+  .layer { border:1px solid var(--grid); border-radius:10px; padding:8px; margin:0 0 10px; position:relative }
+  .ltag { position:absolute; left:-6px; top:50%; transform:translate(-100%,-50%);
+    color:var(--muted); font-size:11px }
+  .sub { border:1.5px solid; border-radius:6px; padding:5px 9px; font-size:12.5px; text-align:center }
+  .layer .sub + .sub { margin-top:6px }
+  .ell { color:var(--muted); font-size:12px; text-align:center; margin:2px 0 12px }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%;
+    margin-right:6px; vertical-align:0; box-shadow:0 0 0 2px var(--surface) }
+
+  /* right cards */
+  .grp { font-size:12px; font-weight:600; letter-spacing:.04em; color:var(--muted);
+    text-transform:uppercase; margin:0 0 8px }
+  .card + .grp, .grp2 { margin-top:20px }
+  .card { background:var(--surface); border:1px solid var(--ring); border-left:4px solid;
+    border-radius:10px; padding:12px 16px; margin:0 0 12px }
+  .ch { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap }
+  .ct { font-weight:600 }
+  .cv { font-weight:600; margin-left:auto; font-size:16px }
+  .pct { color:var(--muted); font-size:12px }
+  .dt { color:var(--ink2); font-size:11px; border:1px solid var(--grid);
+    border-radius:4px; padding:1px 6px; white-space:nowrap }
+  .cl { color:var(--ink2); font-size:12.5px; margin-top:4px }
+  .cl b { color:var(--ink) }
+
+  /* stacked bars */
+  .barcard { background:var(--surface); border:1px solid var(--ring); border-radius:10px;
+    padding:16px; margin:24px 0 0 }
+  .barhead { font-weight:600; margin:0 0 10px }
+  .bar + .barhead { margin-top:18px }
+  .lgrow + .barhead { margin-top:18px }
+  .bar { display:flex; gap:2px; height:24px; border-radius:4px; overflow:hidden }
+  .seg { min-width:3px; position:relative; display:flex; align-items:center; justify-content:center }
+  .seg:first-child { border-radius:4px 0 0 4px } .seg:last-child { border-radius:0 4px 4px 0 }
+  .seg-label { color:#fff; font-size:12px; white-space:nowrap }
+  .lgrow { margin-top:10px; display:flex; gap:18px; flex-wrap:wrap; font-size:12.5px; color:var(--ink2) }
+  .lg i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:-1px }
+  .lg b { color:var(--ink); font-weight:600 }
+  .total { margin-top:14px; padding-top:12px; border-top:1px solid var(--grid);
+    color:var(--ink2) } .total b { color:var(--ink); font-size:15px }
+
+  /* table view */
+  details { margin-top:16px; color:var(--ink2) }
+  summary { cursor:pointer; font-size:13px }
+  table { border-collapse:collapse; margin-top:10px; background:var(--surface);
+    border:1px solid var(--ring); border-radius:8px; font-size:13px }
+  th,td { padding:6px 14px; text-align:left; border-bottom:1px solid var(--grid) }
+  th { color:var(--muted); font-weight:500; font-size:12px }
+  tr:last-child td { border-bottom:none }
+  tr.sep td { border-top:2px solid var(--grid) }
+  .num { text-align:right; font-variant-numeric:tabular-nums }
+</style></head><body><div class="wrap">
+  <h1>$title</h1>
+  <p class="subtitle">$subtitle</p>
+  <p class="meta">$meta</p>
+
+  <div class="filters">
+    <label>context / 请求
+      <select id="f-ctx">$ctx_options</select>
+    </label>
+    <label>并发请求数
+      <select id="f-req">$req_options</select>
+    </label>
+    <label>KV cache 精度
+      <select id="f-kv">$kv_options</select>
+    </label>
+    <span class="fnote">KV Cache 与总占用随选择实时重算；权重（静态）部分不变</span>
+  </div>
+
+  <div class="cols">
+    <div class="panel"><h2>$struct_title</h2>$struct</div>
+    <div>
+      <div class="grp">静态 · 模型权重（加载即占用，与流量无关）</div>
+      $static_cards
+      <div class="grp grp2">动态 · 运行时内存（随 context × 并发请求增长）</div>
+      $runtime_cards
+    </div>
+  </div>
+
+  <div class="barcard">
+    <div class="barhead">$weights_bar_head</div>
+    <div class="bar">$weights_segs</div>
+    <div class="lgrow">$weights_legend</div>
+    <div class="barhead" id="d-tot-head">$total_bar_head</div>
+    <div class="bar" id="d-tot-bar">$total_segs</div>
+    <div class="lgrow" id="d-tot-legend">$total_legend</div>
+    <div class="total" id="d-total-line">$total_line</div>
+  </div>
+
+  <details><summary>表格视图（全部部件）</summary>
+    <table><thead><tr><th>部件</th><th>精度</th><th class="num">参数量</th><th class="num">GiB</th><th class="num">占比</th></tr></thead>
+    <tbody>$table_rows</tbody></table>
+  </details>
+</div>
+
+<script>
+var D = $viz_json;
+var GIB = 1073741824;
+
+function gib(b) {
+  var v = b / GIB;
+  return v >= 0.95
+    ? v.toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 1})
+    : v.toFixed(2);
+}
+function setText(id, txt) {
+  var el = document.getElementById(id);
+  if (el) el.textContent = txt;
+}
+function barHtml(segs, total) {
+  var h = '';
+  for (var i = 0; i < segs.length; i++) {
+    var s = segs[i], share = s.bytes / total, pct = share * 100, inner = '';
+    if (pct >= 30) {
+      inner = "<span class='seg-label'>" + s.label + " " + gib(s.bytes) +
+              " GiB（" + Math.round(pct) + "%）</span>";
+    }
+    h += "<div class='seg' style='flex:" + share.toFixed(6) +
+         ";background:var(--s" + (s.slot + 1) + ")' title='" + s.label + ": " +
+         gib(s.bytes) + " GiB'>" + inner + "</div>";
+  }
+  return h;
+}
+function legendHtml(segs) {
+  return segs.map(function (s) {
+    return "<span class='lg'><i style='background:var(--s" + (s.slot + 1) +
+           ")'></i>" + s.label + "&ensp;<b>" + gib(s.bytes) + "</b></span>";
+  }).join('');
+}
+
+function update() {
+  var ctx = +document.getElementById('f-ctx').value;
+  var req = +document.getElementById('f-req').value;
+  var kvSel = document.getElementById('f-kv').value;
+  var kvDtype = kvSel === 'auto' ? D.kvAuto : kvSel;
+  // fp4 = mxfp4: 0.5 B data + 1 uint8 scale per 16 elements
+  var kvBytes = kvDtype === 'fp8' ? 1 : kvDtype === 'fp4' ? 0.5 + 1 / 16 : 2;
+  var kvPerTok = D.kvElems * kvBytes;
+  var kvPerReq = kvPerTok * ctx;
+  var kvTotal = kvPerReq * req;
+  var runtime = kvTotal + D.actBytes;
+  var total = D.weightsBytes + runtime;
+  var grand = total * (1 + D.overhead);
+  var ctxStr = ctx.toLocaleString('en-US');
+
+  setText('d-runtime', gib(runtime));
+  setText('d-ctx', ctxStr);
+  setText('d-req', req);
+  setText('d-kv-total', gib(kvTotal));
+  setText('d-ctx2', ctxStr);
+  setText('d-kv-per-req', gib(kvPerReq));
+  setText('d-req2', req);
+  setText('d-kv-total2', gib(kvTotal));
+  setText('d-kv-dtype', kvDtype + (kvSel === 'auto' ? '（auto）' : ''));
+  setText('d-kv-per-tok', (kvPerTok / 1024).toLocaleString('en-US',
+    {minimumFractionDigits: 1, maximumFractionDigits: 1}));
+  if (D.mhaRatio) setText('d-mha', gib(kvTotal * D.mhaRatio));
+
+  var segs = [
+    {label: '权重（静态）', bytes: D.weightsBytes, slot: D.weightsSlot},
+    {label: 'KV Cache', bytes: kvTotal, slot: 5},
+    {label: 'Activation', bytes: D.actBytes, slot: 6}
+  ];
+  setText('d-tot-head', '静态 + 动态 · 部署总占用 ≈ ' + gib(total) +
+          ' GiB（context ' + ctxStr + ' × ' + req + ' 并发）');
+  document.getElementById('d-tot-bar').innerHTML = barHtml(segs, total);
+  document.getElementById('d-tot-legend').innerHTML = legendHtml(segs);
+  document.getElementById('d-total-line').innerHTML =
+    '权重 ' + gib(D.weightsBytes) + '（静态） + KV ' + gib(kvTotal) +
+    ' + Activation ' + gib(D.actBytes) + '（动态） + 碎片 ~' +
+    Math.round(D.overhead * 100) + '% ≈ <b>' + gib(grand) + ' GiB</b>' +
+    "<span class='pct'>　·　KV 随 context × 并发线性增长：每并发 +" +
+    gib(kvPerReq) + ' GiB</span>';
+
+  setText('d-tbl-kv-label', 'KV cache（' + ctxStr + ' ctx × ' + req + ' req）');
+  setText('d-tbl-kv-dtype', kvDtype);
+  setText('d-tbl-kv-val', gib(kvTotal));
+}
+
+document.getElementById('f-ctx').addEventListener('change', update);
+document.getElementById('f-req').addEventListener('change', update);
+document.getElementById('f-kv').addEventListener('change', update);
+update();
+</script>
+</body></html>
